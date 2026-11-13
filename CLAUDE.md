@@ -6,7 +6,7 @@ It runs in a new Windows Terminal window opened by a desktop shortcut.
 ## Stack, branches, commands
 - Stack: Windows PowerShell 5.1 + Pester 3.4 (both ship with Windows). No installs.
 - No .exe: Smart App Control blocks unsigned executables on this PC. A Go version was dropped for this reason.
-- Base branch: `main`. No remote.
+- Base branch: `main`. Remote: `origin` on GitHub (public repository).
 - Full suite: `scripts/test.sh` (runs Pester in Windows from WSL; includes a real SetThreadExecutionState call).
 - Coverage: `scripts/test.sh --coverage` (Pester `-CodeCoverage` on `src/*.psm1`).
 - One test file: run `scripts/test.sh` after editing; Pester 3.4 has no single-test filter here.
