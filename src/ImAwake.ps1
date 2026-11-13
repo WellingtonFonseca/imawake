@@ -111,6 +111,38 @@ function Show-Fatal($ErrorRecord) {
     [Console]::ReadKey($true) | Out-Null
 }
 
+# One ImAwake per Windows session: a second window (shortcut or imawake command) would
+# hide that the first one still holds the PC awake.
+function Lock-SingleInstance {
+    $mutex = New-Object Threading.Mutex($false, 'Local\ImAwake')
+    try {
+        if ($mutex.WaitOne(0)) { return $mutex }
+    }
+    catch [Threading.AbandonedMutexException] {
+        # The last ImAwake was killed; this process now owns the mutex.
+        return $mutex
+    }
+    $mutex.Dispose()
+    $null
+}
+
+# A mutex made by an elevated ImAwake can refuse a normal one; that also means "already running".
+function Get-SingleInstance {
+    try {
+        return Lock-SingleInstance
+    }
+    catch [UnauthorizedAccessException] {
+        return $null
+    }
+}
+
+$instance = Get-SingleInstance
+if (-not $instance) {
+    Write-Host 'ImAwake is already running elsewhere. Closing in 5 seconds.'
+    Start-Sleep -Seconds 5
+    exit 0
+}
+
 $saved = @{
     Title    = $Host.UI.RawUI.WindowTitle
     Encoding = [Console]::OutputEncoding
@@ -130,6 +162,8 @@ catch {
 finally {
     try { Set-PowerState (Get-PowerFlags (New-AwakeState)) | Out-Null }
     catch { Write-Log "release at exit failed: $_" }
+    $instance.ReleaseMutex()
+    $instance.Dispose()
     Exit-Screen $saved
     Write-Log 'stop'
 }
