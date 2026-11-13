@@ -1,0 +1,7 @@
+{
+  "name": "imawake",
+  "base_branch": "main",
+  "test_commands": ["scripts/test.sh"],
+  "code_globs": ["src/*", "scripts/*", "tests/*"],
+  "no_review_globs": ["tests/*"]
+}
