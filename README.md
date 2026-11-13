@@ -2,6 +2,8 @@
 
 **Keep your Windows PC awake — only while a small window is open.**
 
+![Windows 10/11](https://img.shields.io/badge/Windows-10%20%7C%2011-0078D4) ![PowerShell 5.1](https://img.shields.io/badge/PowerShell-5.1-5391FE) ![Tests: 98 Pester](https://img.shields.io/badge/tests-98%20Pester-2EA043) ![License: MIT](https://img.shields.io/badge/license-MIT-yellow)
+
 ImAwake is a tiny console app for Windows. Open it and your PC will not go to sleep. Close it and everything goes back to normal. No settings to change, no installer to trust, nothing left running in the background.
 
 ```text
@@ -108,3 +110,7 @@ From WSL: `scripts/test.sh` (add `--coverage` for a coverage report).
 
 1. Delete `%USERPROFILE%\Apps\ImAwake` and the desktop shortcut.
 2. Remove `...\Apps\ImAwake\bin` from your user PATH (Settings → System → About → Advanced system settings → Environment Variables).
+
+## License
+
+[MIT](LICENSE) © 2026 Wellington Fonseca. You may use, change and share the code, also commercially, as long as you keep the copyright notice.
