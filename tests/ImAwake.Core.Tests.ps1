@@ -5,6 +5,14 @@ function New-Key([ConsoleKey]$Key, [char]$Char = [char]0, [switch]$Ctrl) {
     New-Object ConsoleKeyInfo $Char, $Key, $false, $false, ([bool]$Ctrl)
 }
 
+# Gives a list and a scriptblock that records each call in that list.
+function New-Recorder {
+    $calls = New-Object Collections.ArrayList
+    $calls, { param($x) [void]$calls.Add($x) }.GetNewClosure()
+}
+
+$noLog = { param($m) }
+
 function New-RunningState([long]$StartMs = 0) {
     Start-AwakeClock (New-AwakeState) $StartMs
 }
@@ -130,27 +138,22 @@ Describe 'Get-NextState' {
 }
 
 Describe 'Invoke-Transition' {
-    $noLog = { param($m) }
-
     It 'applies the new flags and moves to the next state' {
-        $applied = New-Object Collections.ArrayList
-        $set = { param($f) [void]$applied.Add($f) }.GetNewClosure()
+        $applied, $set = New-Recorder
         $next = Invoke-Transition (New-AwakeState) 'toggle-pause' 0 $set $noLog
         $next.Running | Should Be $true
         $applied.Count | Should Be 1
         $applied[0] | Should Be 2147483651
     }
     It 'skips the Windows call when the flags do not change' {
-        $applied = New-Object Collections.ArrayList
-        $set = { param($f) [void]$applied.Add($f) }.GetNewClosure()
+        $applied, $set = New-Recorder
         $next = Invoke-Transition (New-AwakeState) 'toggle-display' 0 $set $noLog
         $next.Display | Should Be $false
         $applied.Count | Should Be 0
     }
     It 'keeps the old state with the error when the Windows call fails' {
-        $logged = New-Object Collections.ArrayList
+        $logged, $log = New-Recorder
         $fail = { param($f) throw 'denied' }
-        $log = { param($m) [void]$logged.Add($m) }.GetNewClosure()
         $running = New-RunningState 0
         $kept = Invoke-Transition $running 'toggle-pause' 5000 $fail $log
         $kept.Running | Should Be $true
@@ -158,8 +161,7 @@ Describe 'Invoke-Transition' {
         $logged[0] | Should Match "action 'toggle-pause' failed: denied"
     }
     It 'makes no Windows call for toggle-keypress' {
-        $applied = New-Object Collections.ArrayList
-        $set = { param($f) [void]$applied.Add($f) }.GetNewClosure()
+        $applied, $set = New-Recorder
         $next = Invoke-Transition (New-RunningState 0) 'toggle-keypress' 0 $set $noLog
         $next.KeyPress | Should Be $true
         $applied.Count | Should Be 0
@@ -297,32 +299,26 @@ Describe 'Test-KeyPressDue' {
 }
 
 Describe 'Invoke-KeyPressTick' {
-    $noLog = { param($m) }
-
     It 'presses once and records the time' {
-        $pressed = New-Object Collections.ArrayList
-        $press = { [void]$pressed.Add(1) }.GetNewClosure()
+        $pressed, $press = New-Recorder
         $next = Invoke-KeyPressTick (New-KeyPressState 0) 7000 $press $noLog
         $pressed.Count | Should Be 1
         $next.LastKeyMs | Should Be 7000
     }
     It 'does not press when not due' {
-        $pressed = New-Object Collections.ArrayList
-        $press = { [void]$pressed.Add(1) }.GetNewClosure()
+        $pressed, $press = New-Recorder
         $next = Invoke-KeyPressTick (New-KeyPressState 0 1000) 2000 $press $noLog
         $pressed.Count | Should Be 0
         $next.LastKeyMs | Should Be 1000
     }
     It 'does not press while paused' {
-        $pressed = New-Object Collections.ArrayList
-        $press = { [void]$pressed.Add(1) }.GetNewClosure()
+        $pressed, $press = New-Recorder
         $s = Stop-AwakeClock (New-KeyPressState 0) 1000
         $null = Invoke-KeyPressTick $s 999999 $press $noLog
         $pressed.Count | Should Be 0
     }
     It 'keeps F15 on with the error when the press throws, and waits 59 s to retry' {
-        $logged = New-Object Collections.ArrayList
-        $log = { param($m) [void]$logged.Add($m) }.GetNewClosure()
+        $logged, $log = New-Recorder
         $next = Invoke-KeyPressTick (New-KeyPressState 0) 7000 { throw 'blocked' } $log
         $next.Error | Should Match 'F15 keypress failed: blocked'
         $next.LastKeyMs | Should Be 7000
