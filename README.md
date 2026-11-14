@@ -6,21 +6,7 @@
 
 ImAwake is a tiny console app for Windows. Open it and your PC will not go to sleep. Close it and everything goes back to normal. No settings to change, no installer to trust, nothing left running in the background.
 
-```text
-╭─────────────────────────────────────────────────────────╮
-│                                                         │
-│   ☕ ImAwake                                            │
-│                                                         │
-│   ⠹ Awake for 1h 07min                                  │
-│   "Just resting my eyes..."                             │
-│                                                         │
-│   [x] Keep the PC from sleeping                         │
-│   [ ] Keep the screen on                                │
-│   [ ] Press F15 every minute (keeps chat apps active)   │
-│   space pause  ·  d screen  ·  f F15  ·  q quit         │
-│                                                         │
-╰─────────────────────────────────────────────────────────╯
-```
+![ImAwake running in Windows Terminal, with the F15 option on](docs/screenshot.png)
 
 ## Why
 
