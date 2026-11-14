@@ -36,9 +36,14 @@ function Write-Log([string]$Message) {
 
 $script:SetPower = { param($Flags) Set-PowerState $Flags }
 $script:Log = { param($Message) Write-Log $Message }
+$script:PressKey = { Send-F15Key }
 
 function Step-State($State, [string]$Action, [long]$NowMs) {
     Invoke-Transition $State $Action $NowMs $script:SetPower $script:Log
+}
+
+function Step-KeyPress($State, [long]$NowMs) {
+    Invoke-KeyPressTick $State $NowMs $script:PressKey $script:Log
 }
 
 function Write-Screen($State, [long]$NowMs, [bool]$Fancy) {
@@ -83,6 +88,7 @@ function Start-Loop([bool]$Fancy) {
         $read = Read-Keys $state $now
         $state = $read.State
         if ($read.Quit) { return }
+        $state = Step-KeyPress $state $now
         Write-Screen $state $now $Fancy
         Start-Sleep -Milliseconds $script:LoopDelayMs
     }

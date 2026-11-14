@@ -2,23 +2,24 @@
 
 **Keep your Windows PC awake — only while a small window is open.**
 
-![Windows 10/11](https://img.shields.io/badge/Windows-10%20%7C%2011-0078D4) ![PowerShell 5.1](https://img.shields.io/badge/PowerShell-5.1-5391FE) ![Tests: 98 Pester](https://img.shields.io/badge/tests-98%20Pester-2EA043) ![License: MIT](https://img.shields.io/badge/license-MIT-yellow)
+![Windows 10/11](https://img.shields.io/badge/Windows-10%20%7C%2011-0078D4) ![PowerShell 5.1](https://img.shields.io/badge/PowerShell-5.1-5391FE) ![Tests: 122 Pester](https://img.shields.io/badge/tests-122%20Pester-2EA043) ![License: MIT](https://img.shields.io/badge/license-MIT-yellow)
 
 ImAwake is a tiny console app for Windows. Open it and your PC will not go to sleep. Close it and everything goes back to normal. No settings to change, no installer to trust, nothing left running in the background.
 
 ```text
-╭──────────────────────────────────────────────╮
-│                                              │
-│   ☕ ImAwake                                 │
-│                                              │
-│   ⠹ Awake for 1h 07min                       │
-│   "Just resting my eyes..."                  │
-│                                              │
-│   [x] Keep the PC from sleeping              │
-│   [ ] Keep the screen on                     │
-│   space pause  ·  d screen  ·  q quit        │
-│                                              │
-╰──────────────────────────────────────────────╯
+╭─────────────────────────────────────────────────────────╮
+│                                                         │
+│   ☕ ImAwake                                            │
+│                                                         │
+│   ⠹ Awake for 1h 07min                                  │
+│   "Just resting my eyes..."                             │
+│                                                         │
+│   [x] Keep the PC from sleeping                         │
+│   [ ] Keep the screen on                                │
+│   [ ] Press F15 every minute (keeps chat apps active)   │
+│   space pause  ·  d screen  ·  f F15  ·  q quit         │
+│                                                         │
+╰─────────────────────────────────────────────────────────╯
 ```
 
 ## Why
@@ -33,6 +34,7 @@ ImAwake takes a simpler approach: **the window is the switch.** While you can se
 - **Safe by design.** It uses the official Windows API (`SetThreadExecutionState`). If the app crashes or is killed, Windows drops the request on its own. Your power settings are never touched.
 - **Pause at any time.** Press `space` to let the PC sleep again without closing the window.
 - **Screen on, if you want.** Press `d` to also keep the display from turning off.
+- **Stay "Available" in chat apps.** Press `f` to have ImAwake press the unused F15 key every 59 seconds. Teams, Slack and similar apps then do not mark you as away. It is off when the app starts and stops while paused. Note: this counts as real activity for Windows, so the screen also stays on and the PC does not lock on its own, even with `d` off.
 - **Live status.** A timer shows how long the PC has been awake, also in the window title, so you can see it in the taskbar.
 - **One at a time.** A second copy notices the first one and closes, so two windows never fight.
 - **Terminal command.** `imawake`, `imawake window` and `imawake status` from any terminal.
@@ -79,6 +81,7 @@ Inside the window:
 | --- | --- |
 | `space` | Pause / resume |
 | `d` | Keep the screen on (on / off) |
+| `f` | Press F15 every 59 s to stay "Available" in chat apps (on / off) |
 | `q`, `Esc` or `Ctrl+C` | Quit — the PC can sleep again |
 
 ## How it works
@@ -91,13 +94,13 @@ The code is split so the logic can be tested without Windows:
 | --- | --- |
 | `ImAwake.Core.psm1` | State, timer, texts — pure logic, no console and no clock reads |
 | `ImAwake.Frame.psm1` | Draws the box as text lines — pure, no console |
-| `ImAwake.Power.psm1` | The only place that calls Windows |
+| `ImAwake.Power.psm1` | The only place that calls Windows (power request, F15 key) |
 | `ImAwake.Launch.psm1` | Helpers for the `imawake` command |
 | `ImAwake.ps1` | The main loop: reads keys, draws the screen, applies the power state |
 
 ## Tests
 
-98 [Pester](https://pester.dev) tests cover the logic, the drawing, the launcher and a real call to the Windows power API.
+122 [Pester](https://pester.dev) tests cover the logic, the drawing, the launcher, a real call to the Windows power API and a real F15 keypress.
 
 ```powershell
 Import-Module Pester -RequiredVersion 3.4.0   # the version built into Windows

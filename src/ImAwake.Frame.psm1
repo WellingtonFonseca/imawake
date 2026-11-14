@@ -55,6 +55,7 @@ function Get-HelpSegments([bool]$Running) {
     @(
         (New-Segment 'space' 'Key'), (New-Segment " $pause" 'Muted'), (New-Segment $sep 'Muted'),
         (New-Segment 'd' 'Key'), (New-Segment ' screen' 'Muted'), (New-Segment $sep 'Muted'),
+        (New-Segment 'f' 'Key'), (New-Segment ' F15' 'Muted'), (New-Segment $sep 'Muted'),
         (New-Segment 'q' 'Key'), (New-Segment ' quit' 'Muted')
     )
 }
@@ -79,6 +80,7 @@ function Get-ContentRows($View) {
         , @()
         , @(New-Segment "$(Get-Checkbox $true) Keep the PC from sleeping")
         , @(New-Segment "$(Get-Checkbox $View.Display) Keep the screen on")
+        , @(New-Segment "$(Get-Checkbox $View.KeyPress) Press F15 every minute (keeps chat apps active)")
         , $errorRow
         , (Get-HelpSegments $View.Running)
     )

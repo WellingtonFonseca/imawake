@@ -8,9 +8,9 @@ function Get-PlainLines($Lines) {
     $Lines | ForEach-Object { $ansi.Replace($_, '') }
 }
 
-function New-View([bool]$Running = $true, [bool]$Fancy = $false, $ErrorText = $null, [bool]$Display = $true) {
+function New-View([bool]$Running = $true, [bool]$Fancy = $false, $ErrorText = $null, [bool]$Display = $true, [bool]$KeyPress = $false) {
     [pscustomobject]@{
-        Running = $Running; Display = $Display; Elapsed = '1h 20min'
+        Running = $Running; Display = $Display; KeyPress = $KeyPress; Elapsed = '1h 20min'
         Humor = 'Just resting my eyes...'; Spinner = '|'; Error = $ErrorText; Fancy = $Fancy
     }
 }
@@ -24,7 +24,13 @@ Describe 'Get-FrameLines' {
         $text | Should Match '\[x\] Keep the screen on'
         $text | Should Match 'space pause'
         $text | Should Match 'd screen'
+        $text | Should Match '\[ \] Press F15 every minute \(keeps chat apps active\)'
+        $text | Should Match 'f F15'
         $text | Should Match 'q quit'
+    }
+    It 'shows the F15 option on' {
+        $text = (Get-PlainLines (Get-FrameLines (New-View -KeyPress $true) 80 24)) -join "`n"
+        $text | Should Match '\[x\] Press F15 every minute'
     }
     It 'draws the paused screen' {
         $text = (Get-PlainLines (Get-FrameLines (New-View -Running $false) 80 24)) -join "`n"

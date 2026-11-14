@@ -17,7 +17,7 @@ It runs in a new Windows Terminal window opened by a desktop shortcut.
 ## Rules
 - `src/*.psm1` and `src/*.ps1` stay ASCII. PowerShell 5.1 reads a file without a BOM as ANSI; build glyphs with `[char]::ConvertFromUtf32`.
 - `ImAwake.Core.psm1` and `ImAwake.Frame.psm1` are pure: no console, no clock, no Windows calls. Time comes in as `NowMs`.
-- Every power call comes from the main loop thread. Never use jobs, runspaces or event actions for it.
+- Every Windows call (power, SendInput) comes from the main loop thread. Never use jobs, runspaces or event actions for it.
 - Pester 3.4 syntax: `Should Be`, no dash; no `BeforeAll`.
 
 ## Traps
@@ -30,3 +30,6 @@ It runs in a new Windows Terminal window opened by a desktop shortcut.
 - Terminals already open keep the old PATH; Windows Terminal may need every window closed. The WSL shell never sees it.
 - A named mutex `Local\ImAwake` allows one app per session; a second window says so and closes.
 - `Win32_Process.CommandLine` is empty for a process with higher rights; such an app is not found by `imawake status`.
+- `INPUT` for SendInput must hold the `MOUSEINPUT` union member; a wrong `cbSize` makes SendInput return 0 (error 87).
+- F15 resets the Windows idle timer: with it on, the screen stays on and auto-lock does not happen, even with `d` off.
+- SendInput fails or is ignored on a locked session; a failed press waits the full 59 s before it retries, so the log gets one line per minute.

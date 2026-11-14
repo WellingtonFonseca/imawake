@@ -21,6 +21,11 @@ Describe 'New-AwakeState' {
         Get-ActiveMs $s 99999 | Should Be 0
         $s.Error | Should BeNullOrEmpty
     }
+    It 'starts with F15 off and never pressed' {
+        $s = New-AwakeState
+        $s.KeyPress | Should Be $false
+        $s.LastKeyMs | Should BeNullOrEmpty
+    }
 }
 
 Describe 'Active time' {
@@ -75,6 +80,8 @@ Describe 'Get-KeyAction' {
     It 'maps Esc to quit' { Get-KeyAction (New-Key Escape) | Should Be 'quit' }
     It 'maps Ctrl+C to quit' { Get-KeyAction (New-Key C -Ctrl) | Should Be 'quit' }
     It 'ignores Ctrl with another key' { Get-KeyAction (New-Key D -Ctrl) | Should Be 'none' }
+    It 'maps f to toggle-keypress' { Get-KeyAction (New-Key F 'f') | Should Be 'toggle-keypress' }
+    It 'ignores Ctrl+F' { Get-KeyAction (New-Key F -Ctrl) | Should Be 'none' }
     It 'ignores other keys' { Get-KeyAction (New-Key X 'x') | Should Be 'none' }
 }
 
@@ -98,6 +105,21 @@ Describe 'Get-NextState' {
     It 'stops the clock on quit' {
         $next = Get-NextState (New-RunningState 0) 'quit' 5000
         $next.Running | Should Be $false
+    }
+    It 'turns F15 on and makes a press due, keeping the clock and the screen option' {
+        $s = New-RunningState 1000
+        $s.LastKeyMs = 500
+        $next = Get-NextState $s 'toggle-keypress' 5000
+        $next.KeyPress | Should Be $true
+        $next.LastKeyMs | Should BeNullOrEmpty
+        $next.Running | Should Be $true
+        $next.ResumedAtMs | Should Be 1000
+        $next.Display | Should Be $true
+    }
+    It 'turns F15 off on the second toggle' {
+        $s = Get-NextState (New-RunningState 0) 'toggle-keypress' 0
+        $s = Get-NextState $s 'toggle-keypress' 0
+        $s.KeyPress | Should Be $false
     }
     It 'keeps the state on an unknown action' {
         $s = New-RunningState 0
@@ -134,6 +156,13 @@ Describe 'Invoke-Transition' {
         $kept.Running | Should Be $true
         $kept.Error | Should Be 'denied'
         $logged[0] | Should Match "action 'toggle-pause' failed: denied"
+    }
+    It 'makes no Windows call for toggle-keypress' {
+        $applied = New-Object Collections.ArrayList
+        $set = { param($f) [void]$applied.Add($f) }.GetNewClosure()
+        $next = Invoke-Transition (New-RunningState 0) 'toggle-keypress' 0 $set $noLog
+        $next.KeyPress | Should Be $true
+        $applied.Count | Should Be 0
     }
     It 'clears an old error on the next transition' {
         $s = New-RunningState 0
@@ -227,5 +256,94 @@ Describe 'Get-ViewModel' {
         $v.Humor | Should Be 'I was listening, I swear.'
         $v.Error | Should Be 'boom'
         $v.Fancy | Should Be $false
+        $v.KeyPress | Should Be $false
+    }
+    It 'shows F15 on' {
+        $s = Get-NextState (New-RunningState 0) 'toggle-keypress' 0
+        (Get-ViewModel $s 0 $false).KeyPress | Should Be $true
+    }
+}
+
+function New-KeyPressState([long]$StartMs = 0, $LastKeyMs = $null) {
+    $s = Get-NextState (New-RunningState $StartMs) 'toggle-keypress' $StartMs
+    $s.LastKeyMs = $LastKeyMs
+    $s
+}
+
+Describe 'Test-KeyPressDue' {
+    It 'is false with F15 off' {
+        Test-KeyPressDue (New-RunningState 0) 999999 | Should Be $false
+    }
+    It 'is false while paused, even when a press is due' {
+        $s = Stop-AwakeClock (New-KeyPressState 0) 1000
+        Test-KeyPressDue $s 999999 | Should Be $false
+    }
+    It 'is true when running with F15 on and never pressed' {
+        Test-KeyPressDue (New-KeyPressState 0) 0 | Should Be $true
+    }
+    It 'is false 1 ms before 59 s' {
+        Test-KeyPressDue (New-KeyPressState 0 1000) 59999 | Should Be $false
+    }
+    It 'is true at 59 s' {
+        Test-KeyPressDue (New-KeyPressState 0 1000) 60000 | Should Be $true
+    }
+    It 'waits for the rest of the 59 s after a short pause' {
+        $s = New-KeyPressState 0 1000
+        $s = Stop-AwakeClock $s 10000
+        $s = Start-AwakeClock $s 20000
+        Test-KeyPressDue $s 59999 | Should Be $false
+        Test-KeyPressDue $s 60000 | Should Be $true
+    }
+}
+
+Describe 'Invoke-KeyPressTick' {
+    $noLog = { param($m) }
+
+    It 'presses once and records the time' {
+        $pressed = New-Object Collections.ArrayList
+        $press = { [void]$pressed.Add(1) }.GetNewClosure()
+        $next = Invoke-KeyPressTick (New-KeyPressState 0) 7000 $press $noLog
+        $pressed.Count | Should Be 1
+        $next.LastKeyMs | Should Be 7000
+    }
+    It 'does not press when not due' {
+        $pressed = New-Object Collections.ArrayList
+        $press = { [void]$pressed.Add(1) }.GetNewClosure()
+        $next = Invoke-KeyPressTick (New-KeyPressState 0 1000) 2000 $press $noLog
+        $pressed.Count | Should Be 0
+        $next.LastKeyMs | Should Be 1000
+    }
+    It 'does not press while paused' {
+        $pressed = New-Object Collections.ArrayList
+        $press = { [void]$pressed.Add(1) }.GetNewClosure()
+        $s = Stop-AwakeClock (New-KeyPressState 0) 1000
+        $null = Invoke-KeyPressTick $s 999999 $press $noLog
+        $pressed.Count | Should Be 0
+    }
+    It 'keeps F15 on with the error when the press throws, and waits 59 s to retry' {
+        $logged = New-Object Collections.ArrayList
+        $log = { param($m) [void]$logged.Add($m) }.GetNewClosure()
+        $next = Invoke-KeyPressTick (New-KeyPressState 0) 7000 { throw 'blocked' } $log
+        $next.Error | Should Match 'F15 keypress failed: blocked'
+        $next.LastKeyMs | Should Be 7000
+        $next.KeyPress | Should Be $true
+        $logged.Count | Should Be 1
+        $logged[0] | Should Match 'F15 keypress failed: blocked'
+    }
+    It 'clears its own F15 error on the next success' {
+        $s = Invoke-KeyPressTick (New-KeyPressState 0) 7000 { throw 'blocked' } $noLog
+        $next = Invoke-KeyPressTick $s 66000 { } $noLog
+        $next.Error | Should BeNullOrEmpty
+    }
+    It 'keeps a power error on success' {
+        $s = New-KeyPressState 0
+        $s.Error = 'SetThreadExecutionState failed'
+        $next = Invoke-KeyPressTick $s 7000 { } $noLog
+        $next.Error | Should Be 'SetThreadExecutionState failed'
+    }
+    It 'never changes the state it receives' {
+        $s = New-KeyPressState 0
+        $null = Invoke-KeyPressTick $s 7000 { } $noLog
+        $s.LastKeyMs | Should BeNullOrEmpty
     }
 }

@@ -7,6 +7,9 @@ Set-StrictMode -Version Latest
 
 $script:HumorIntervalMs = 180000
 $script:SpinnerStepMs = 250
+# Under one minute, so chat apps that mark you away after 1 min of idle time never do.
+$script:KeyPressIntervalMs = 59000
+$script:KeyPressErrorPrefix = 'F15 keypress failed: '
 
 # SetThreadExecutionState flags (winbase.h).
 $script:EsContinuous = [uint32]2147483648
@@ -39,6 +42,8 @@ function New-AwakeState {
         Display       = $true
         AccumulatedMs = [long]0
         ResumedAtMs   = [long]0
+        KeyPress      = $false
+        LastKeyMs     = $null
         Error         = $null
     }
 }
@@ -93,6 +98,7 @@ function Get-KeyAction([ConsoleKeyInfo]$Key) {
     switch ($Key.Key) {
         ([ConsoleKey]::Spacebar) { return 'toggle-pause' }
         ([ConsoleKey]::D)        { return 'toggle-display' }
+        ([ConsoleKey]::F)        { return 'toggle-keypress' }
         ([ConsoleKey]::Q)        { return 'quit' }
         ([ConsoleKey]::Escape)   { return 'quit' }
     }
@@ -110,6 +116,13 @@ function Get-NextState($State, [string]$Action, [long]$NowMs) {
         'toggle-display' {
             $next = Copy-AwakeState $State
             $next.Display = -not $State.Display
+            return $next
+        }
+        'toggle-keypress' {
+            $next = Copy-AwakeState $State
+            $next.KeyPress = -not $State.KeyPress
+            # A null time makes the first press due at once, as feedback for the user.
+            $next.LastKeyMs = $null
             return $next
         }
         'quit' { return Stop-AwakeClock $State $NowMs }
@@ -135,6 +148,31 @@ function Invoke-Transition($State, [string]$Action, [long]$NowMs, [scriptblock]$
         $kept.Error = "$_"
         return $kept
     }
+}
+
+function Test-KeyPressDue($State, [long]$NowMs) {
+    if (-not $State.KeyPress -or -not $State.Running) { return $false }
+    if ($null -eq $State.LastKeyMs) { return $true }
+    ($NowMs - $State.LastKeyMs) -ge $script:KeyPressIntervalMs
+}
+
+# Presses the key through PressKey when a press is due.
+# A failure also records the time, so the retry waits a full interval
+# instead of logging on every loop. A success clears only an F15 error,
+# so a power error stays on the screen.
+function Invoke-KeyPressTick($State, [long]$NowMs, [scriptblock]$PressKey, [scriptblock]$Log) {
+    if (-not (Test-KeyPressDue $State $NowMs)) { return $State }
+    $next = Copy-AwakeState $State
+    $next.LastKeyMs = $NowMs
+    try {
+        & $PressKey | Out-Null
+        if ($next.Error -and $next.Error.StartsWith($script:KeyPressErrorPrefix)) { $next.Error = $null }
+    }
+    catch {
+        $next.Error = "$script:KeyPressErrorPrefix$_"
+        & $Log $next.Error
+    }
+    $next
 }
 
 function Split-HoursMinutes([long]$Ms) {
@@ -197,6 +235,7 @@ function Get-ViewModel($State, [long]$NowMs, [bool]$Fancy) {
     [pscustomobject]@{
         Running = [bool]$State.Running
         Display = [bool]$State.Display
+        KeyPress = [bool]$State.KeyPress
         Elapsed = Format-Elapsed $activeMs
         Humor   = Get-HumorLine $activeMs
         Spinner = Get-SpinnerFrame $activeMs $Fancy
@@ -206,5 +245,5 @@ function Get-ViewModel($State, [long]$NowMs, [bool]$Fancy) {
 }
 
 Export-ModuleMember -Function New-AwakeState, Get-ActiveMs, Start-AwakeClock, Stop-AwakeClock,
-    Get-PowerFlags, Get-KeyAction, Get-NextState, Invoke-Transition, Format-Elapsed, Get-WindowTitle,
+    Get-PowerFlags, Get-KeyAction, Get-NextState, Invoke-Transition, Test-KeyPressDue, Invoke-KeyPressTick, Format-Elapsed, Get-WindowTitle,
     Get-HumorLine, Get-SpinnerFrame, Get-DisplayWidth, Get-ViewModel, Get-Glyph
