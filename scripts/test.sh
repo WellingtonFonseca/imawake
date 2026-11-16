@@ -11,7 +11,7 @@ trap 'rm -rf "$work"' EXIT
 
 rm -rf "$work"
 mkdir -p "$work"
-cp -r "$root/src" "$root/tests" "$work/"
+cp -r "$root/src" "$root/scripts" "$root/tests" "$work/"
 
 coverage=""
 if [[ "${1:-}" == "--coverage" ]]; then

@@ -10,6 +10,10 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
+# Windows PowerShell 5.1 looks up a relative module path such as src\X.psm1 only in
+# PSModulePath, not in the current folder, so the README command needs a full path.
+$SourceDir = Convert-Path -LiteralPath $SourceDir
+
 Import-Module (Join-Path $SourceDir 'ImAwake.Launch.psm1') -Force
 Import-Module (Join-Path $SourceDir 'ImAwake.UserPath.psm1') -Force
 

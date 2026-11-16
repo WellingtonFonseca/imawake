@@ -32,4 +32,6 @@ It runs in a new Windows Terminal window opened by a desktop shortcut.
 - `Win32_Process.CommandLine` is empty for a process with higher rights; such an app is not found by `imawake status`.
 - `INPUT` for SendInput must hold the `MOUSEINPUT` union member; a wrong `cbSize` makes SendInput return 0 (error 87).
 - F15 resets the Windows idle timer: with it on, the screen stays on and auto-lock does not happen, even with `d` off.
+- Windows PowerShell 5.1 `Import-Module src\X.psm1` (relative, no `.\`) searches only `PSModulePath`. `install.ps1` resolves `-SourceDir` to a full path first.
+- A Pester test that runs a child `powershell.exe` with `2>&1` sets `$ErrorActionPreference = 'Continue'`; under `Stop` the first stderr line throws.
 - SendInput fails or is ignored on a locked session; a failed press waits the full 59 s before it retries, so the log gets one line per minute.
