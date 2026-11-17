@@ -1,4 +1,5 @@
-# Pure rule for adding a folder to the user PATH text. Used only by the installer.
+# Pure rules for adding a folder to the user PATH text, and for taking it out again.
+# Used by the installer and the uninstaller.
 
 Set-StrictMode -Version Latest
 
@@ -19,4 +20,14 @@ function Add-PathEntry([string]$Raw, [string]$Dir) {
     $Raw.TrimEnd(';') + ';' + $Dir
 }
 
-Export-ModuleMember -Function Add-PathEntry
+# Gives the PATH text without Dir, or $null when Dir is not there.
+# The other entries stay as they are, %VAR% text included.
+function Remove-PathEntry([string]$Raw, [string]$Dir) {
+    $key = Format-PathKey $Dir
+    $entries = @(([string]$Raw) -split ';' | Where-Object { $_.Trim() })
+    $kept = @($entries | Where-Object { (Format-PathKey $_) -ne $key })
+    if ($kept.Count -eq $entries.Count) { return $null }
+    $kept -join ';'
+}
+
+Export-ModuleMember -Function Add-PathEntry, Remove-PathEntry

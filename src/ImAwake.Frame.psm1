@@ -60,6 +60,25 @@ function Get-HelpSegments([bool]$Running) {
     )
 }
 
+# An empty row when the copy is not installed, so the box height never changes.
+function Get-UninstallHintSegments([bool]$CanUninstall) {
+    if (-not $CanUninstall) { return @() }
+    @((New-Segment 'ctrl+u' 'Key'), (New-Segment ' uninstall' 'Muted'))
+}
+
+# The two last rows of the box while the uninstall question shows.
+function Get-ConfirmRows {
+    $sep = '  {0}  ' -f (Get-Glyph 0x00B7)
+    @(
+        , @(
+            (New-Segment 'Uninstall ImAwake?  ' 'Error'),
+            (New-Segment 'y' 'Key'), (New-Segment ' yes' 'Muted'), (New-Segment $sep 'Muted'),
+            (New-Segment 'n' 'Key'), (New-Segment ' no' 'Muted')
+        )
+        , @(New-Segment 'Removes the app, the shortcut and the PATH entry' 'Muted')
+    )
+}
+
 function Get-Checkbox([bool]$On) {
     if ($On) { return '[x]' }
     '[ ]'
@@ -72,7 +91,7 @@ function Get-ContentRows($View) {
     if ($View.Error) {
         $errorRow = @(New-Segment "! $($View.Error)" 'Error')
     }
-    @(
+    $rows = @(
         , @(New-Segment "$coffee ImAwake" 'Header')
         , @()
         , (Get-StatusSegments $View)
@@ -82,8 +101,11 @@ function Get-ContentRows($View) {
         , @(New-Segment "$(Get-Checkbox $View.Display) Keep the screen on")
         , @(New-Segment "$(Get-Checkbox $View.KeyPress) Press F15 every minute (keeps chat apps active)")
         , $errorRow
-        , (Get-HelpSegments $View.Running)
     )
+    if ($View.Confirm) { return $rows + (Get-ConfirmRows) }
+    $rows += , (Get-HelpSegments $View.Running)
+    $rows += , @(Get-UninstallHintSegments $View.CanUninstall)
+    $rows
 }
 
 function Get-RowWidth($Segments) {
@@ -133,15 +155,14 @@ function Format-Border([string]$Text) {
     "$script:Esc[$($script:Style.Border)m$Text$script:Reset"
 }
 
-# Gives the screen lines: the box centered in a Width x Height window.
+# Gives the screen lines: the rows in a box, centered in a Width x Height window.
 # From 21 columns up, no line is wider than Width - 1, because writing the last cell
 # makes the console scroll. Below that the box keeps its minimum width and wraps.
-function Get-FrameLines($View, [int]$Width, [int]$Height) {
-    $box = Get-BoxChars $View.Fancy
-    $rows = Get-ContentRows $View
+function Get-BoxLines($Rows, [bool]$Fancy, [int]$Width, [int]$Height) {
+    $box = Get-BoxChars $Fancy
     $usable = [math]::Max($Width - 1, 1)
     $chrome = 2 + 2 * $script:PaddingX
-    $natural = ($rows | ForEach-Object { Get-RowWidth $_ } | Measure-Object -Maximum).Maximum
+    $natural = ($Rows | ForEach-Object { Get-RowWidth $_ } | Measure-Object -Maximum).Maximum
     $inner = [int][math]::Max([math]::Min($natural, $usable - $chrome), $script:MinInnerWidth)
 
     $pad = ' ' * $script:PaddingX
@@ -149,7 +170,7 @@ function Get-FrameLines($View, [int]$Width, [int]$Height) {
     $blank = "$side$(' ' * ($inner + 2 * $script:PaddingX))$side"
     $lines = @(Format-Border "$($box.TL)$($box.H * ($inner + 2 * $script:PaddingX))$($box.TR)")
     $lines += $blank
-    foreach ($row in $rows) {
+    foreach ($row in $Rows) {
         $cut = Limit-Row $row $inner
         $fill = ' ' * ($inner - (Get-RowWidth $cut))
         $lines += "$side$pad$(Format-Row $cut)$fill$pad$side"
@@ -158,6 +179,10 @@ function Get-FrameLines($View, [int]$Width, [int]$Height) {
     $lines += Format-Border "$($box.BL)$($box.H * ($inner + 2 * $script:PaddingX))$($box.BR)"
 
     Get-CenteredLines $lines ($inner + $chrome) $usable $Height
+}
+
+function Get-FrameLines($View, [int]$Width, [int]$Height) {
+    Get-BoxLines (Get-ContentRows $View) $View.Fancy $Width $Height
 }
 
 function Get-CenteredLines([string[]]$Lines, [int]$BoxWidth, [int]$Usable, [int]$Height) {
@@ -171,4 +196,46 @@ function Get-CenteredLines([string[]]$Lines, [int]$BoxWidth, [int]$Usable, [int]
     , $out
 }
 
-Export-ModuleMember -Function Get-FrameLines, Limit-Text
+# "[#####-----] 5/12": the fill is rounded down, so the bar is full only when all steps are done.
+function Format-ProgressBar([int]$Done, [int]$Total, [int]$Width, [bool]$Fancy) {
+    $doneClamped = [math]::Min([math]::Max($Done, 0), [math]::Max($Total, 0))
+    $fill = $Width
+    if ($Total -gt 0) { $fill = [int][math]::Floor($Width * $doneClamped / $Total) }
+    $full = if ($Fancy) { Get-Glyph 0x2588 } else { '#' }
+    $empty = if ($Fancy) { Get-Glyph 0x2591 } else { '-' }
+    '[{0}{1}] {2}/{3}' -f ($full * $fill), ($empty * ($Width - $fill)), $doneClamped, [math]::Max($Total, 0)
+}
+
+# The rows of the uninstall screen: View has Fancy, Done, Total, Current, Finished and Failed.
+function Get-UninstallRows($View) {
+    $coffee = if ($View.Fancy) { Get-Glyph 0x2615 } else { 'c[_]' }
+    $rows = @(
+        , @(New-Segment "$coffee ImAwake uninstall" 'Header')
+        , @()
+        , @(New-Segment (Format-ProgressBar $View.Done $View.Total 30 $View.Fancy) 'Status')
+    )
+    if (-not $View.Finished) {
+        $rows += , @(New-Segment "Removing: $($View.Current)" 'Muted')
+        return $rows
+    }
+    $failed = @($View.Failed)
+    if ($failed.Count -eq 0) {
+        $rows += , @(New-Segment 'Done. ImAwake is removed.' 'Awake')
+    }
+    else {
+        $rows += , @(New-Segment "Failed: $($failed.Count) item(s)" 'Error')
+        foreach ($label in ($failed | Select-Object -First 3)) {
+            $rows += , @(New-Segment "- $label" 'Error')
+        }
+    }
+    $rows += , @()
+    $rows += , @(New-Segment 'Kept: %LOCALAPPDATA%\ImAwake (log, PATH backup)' 'Muted')
+    $rows += , @(New-Segment 'Press any key to close' 'Muted')
+    $rows
+}
+
+function Get-UninstallFrameLines($View, [int]$Width, [int]$Height) {
+    Get-BoxLines (Get-UninstallRows $View) $View.Fancy $Width $Height
+}
+
+Export-ModuleMember -Function Get-FrameLines, Get-BoxLines, Get-UninstallFrameLines, Format-ProgressBar, Limit-Text

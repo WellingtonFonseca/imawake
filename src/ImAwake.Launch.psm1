@@ -9,6 +9,12 @@ function Get-LaunchArguments([string]$PowerShellPath, [string]$ScriptPath) {
     "-w new `"$PowerShellPath`" -NoProfile -ExecutionPolicy Bypass -File `"$ScriptPath`""
 }
 
+# Arguments for wt.exe to run the uninstaller in a new window. -d sets the start folder,
+# because wt.exe ignores the working folder of its own process; the app folder must not be it.
+function Get-UninstallArguments([string]$PowerShellPath, [string]$ScriptPath, [string]$WorkDir) {
+    "-w new -d `"$WorkDir`" `"$PowerShellPath`" -NoProfile -ExecutionPolicy Bypass -File `"$ScriptPath`""
+}
+
 # True when a process command line runs exactly ScriptPath with -File.
 # Anchored on the full path, so ImAwake.Cli.ps1 or a dev copy elsewhere never match.
 function Test-AppCommandLine([string]$CommandLine, [string]$ScriptPath) {
@@ -34,4 +40,4 @@ function Resolve-CliAction([string[]]$Arguments) {
     'usage-error'
 }
 
-Export-ModuleMember -Function Get-LaunchArguments, Test-AppCommandLine, Format-Since, Resolve-CliAction
+Export-ModuleMember -Function Get-LaunchArguments, Get-UninstallArguments, Test-AppCommandLine, Format-Since, Resolve-CliAction

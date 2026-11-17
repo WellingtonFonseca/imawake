@@ -31,3 +31,40 @@ Describe 'Add-PathEntry' {
         Add-PathEntry 'C:\a;%USERPROFILE%\Apps\ImAwake' $bin | Should BeExactly "C:\a;%USERPROFILE%\Apps\ImAwake;$bin"
     }
 }
+
+Describe 'Remove-PathEntry' {
+    It 'removes the entry and keeps the others as they are' {
+        Remove-PathEntry "$five;$bin" $bin | Should BeExactly $five
+    }
+    It 'removes an entry in the middle' {
+        Remove-PathEntry "C:\a;$bin;%USERPROFILE%\x" $bin | Should BeExactly 'C:\a;%USERPROFILE%\x'
+    }
+    It 'matches a trailing backslash, another case and spaces' {
+        Remove-PathEntry "C:\a; $($bin.ToUpperInvariant())\ ;C:\b" $bin | Should BeExactly 'C:\a;C:\b'
+    }
+    It 'matches a quoted entry' {
+        Remove-PathEntry "C:\a;`"$bin`"" $bin | Should BeExactly 'C:\a'
+    }
+    It 'matches a %USERPROFILE% entry' {
+        Remove-PathEntry 'C:\a;%USERPROFILE%\Apps\ImAwake\bin;C:\b' $bin | Should BeExactly 'C:\a;C:\b'
+    }
+    It 'removes a duplicate too' {
+        Remove-PathEntry "$bin;C:\a;$bin" $bin | Should BeExactly 'C:\a'
+    }
+    It 'gives $null when the entry is absent' {
+        Remove-PathEntry $five $bin | Should BeNullOrEmpty
+        Remove-PathEntry '' $bin | Should BeNullOrEmpty
+        Remove-PathEntry $null $bin | Should BeNullOrEmpty
+    }
+    It 'gives an empty text when it was the only entry' {
+        $result = Remove-PathEntry $bin $bin
+        ($null -ne $result) | Should Be $true
+        $result | Should BeExactly ''
+    }
+    It 'leaves no double or trailing separator' {
+        Remove-PathEntry "C:\a;$bin;" $bin | Should BeExactly 'C:\a'
+    }
+    It 'does not remove the parent folder' {
+        Remove-PathEntry (Split-Path $bin) $bin | Should BeNullOrEmpty
+    }
+}

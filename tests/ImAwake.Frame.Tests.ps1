@@ -8,10 +8,10 @@ function Get-PlainLines($Lines) {
     $Lines | ForEach-Object { $ansi.Replace($_, '') }
 }
 
-function New-View([bool]$Running = $true, [bool]$Fancy = $false, $ErrorText = $null, [bool]$Display = $true, [bool]$KeyPress = $false) {
+function New-View([bool]$Running = $true, [bool]$Fancy = $false, $ErrorText = $null, [bool]$Display = $true, [bool]$KeyPress = $false, [bool]$Confirm = $false, [bool]$CanUninstall = $false) {
     [pscustomobject]@{
         Running = $Running; Display = $Display; KeyPress = $KeyPress; Elapsed = '1h 20min'
-        Humor = 'Just resting my eyes...'; Spinner = '|'; Error = $ErrorText; Fancy = $Fancy
+        Humor = 'Just resting my eyes...'; Spinner = '|'; Error = $ErrorText; Fancy = $Fancy; Confirm = $Confirm; CanUninstall = $CanUninstall
     }
 }
 
@@ -83,5 +83,80 @@ Describe 'Limit-Text' {
     It 'never splits a wide glyph' {
         $coffee = [char]::ConvertFromUtf32(0x2615)
         Limit-Text "a$coffee" 2 | Should BeExactly 'a'
+    }
+}
+
+Describe 'Get-FrameLines for uninstall' {
+    function Get-Text($View) { (Get-PlainLines (Get-FrameLines $View 120 30)) -join "`n" }
+    It 'shows the ctrl+u hint on an installed copy' {
+        Get-Text (New-View -CanUninstall $true) | Should Match 'ctrl\+u uninstall'
+    }
+    It 'hides the hint when the copy is not installed' {
+        Get-Text (New-View) | Should Not Match 'ctrl\+u'
+    }
+    It 'shows the confirm prompt in place of the help rows' {
+        $text = Get-Text (New-View -CanUninstall $true -Confirm $true)
+        $text | Should Match 'Uninstall ImAwake\?\s+y yes\s+.\s+n no'
+        $text | Should Match 'Removes the app, the shortcut and the PATH entry'
+        $text | Should Not Match 'q quit'
+        $text | Should Not Match 'space pause'
+    }
+    It 'keeps the box size in the three views' {
+        $views = @((New-View -KeyPress $true), (New-View -KeyPress $true -CanUninstall $true), (New-View -KeyPress $true -CanUninstall $true -Confirm $true))
+        $sizes = $views | ForEach-Object {
+            $lines = @(Get-PlainLines (Get-FrameLines $_ 120 30))
+            $box = @($lines | Where-Object { $_.Trim() })
+            '{0}x{1}' -f $box.Count, ($box | ForEach-Object { $_.Trim().Length } | Measure-Object -Maximum).Maximum
+        }
+        @($sizes | Select-Object -Unique).Count | Should Be 1
+    }
+}
+
+Describe 'Format-ProgressBar' {
+    It 'is empty at 0 of 12' { Format-ProgressBar 0 12 12 $false | Should BeExactly '[------------] 0/12' }
+    It 'rounds the fill down at 5 of 12' { Format-ProgressBar 5 12 10 $false | Should BeExactly '[####------] 5/12' }
+    It 'is full at 12 of 12' { Format-ProgressBar 12 12 10 $false | Should BeExactly '[##########] 12/12' }
+    It 'is not full before the last step' { Format-ProgressBar 11 12 10 $false | Should BeExactly '[#########-] 11/12' }
+    It 'is full for no steps' { Format-ProgressBar 0 0 4 $false | Should BeExactly '[####] 0/0' }
+    It 'limits Done to Total and to zero' {
+        Format-ProgressBar 13 12 10 $false | Should BeExactly '[##########] 12/12'
+        Format-ProgressBar -3 12 10 $false | Should BeExactly '[----------] 0/12'
+    }
+    It 'uses block glyphs in fancy mode' {
+        $full = [char]::ConvertFromUtf32(0x2588)
+        $empty = [char]::ConvertFromUtf32(0x2591)
+        Format-ProgressBar 1 2 4 $true | Should BeExactly "[$full$full$empty$empty] 1/2"
+    }
+}
+
+Describe 'Get-UninstallFrameLines' {
+    function New-UninstallView([int]$Done = 3, [int]$Total = 12, [bool]$Finished = $false, $Failed = @(), [bool]$Fancy = $false) {
+        [pscustomobject]@{ Fancy = $Fancy; Done = $Done; Total = $Total; Current = 'Remove ImAwake.Core.psm1'; Finished = $Finished; Failed = $Failed }
+    }
+    function Get-UText($View, [int]$Width = 100) { (Get-PlainLines (Get-UninstallFrameLines $View $Width 30)) -join "`n" }
+    It 'shows the title, the bar and the current step' {
+        $text = Get-UText (New-UninstallView)
+        $text | Should Match 'ImAwake uninstall'
+        $text | Should Match '\[#######-{23}\] 3/12'
+        $text | Should Match 'Removing: Remove ImAwake\.Core\.psm1'
+        $text | Should Not Match 'Press any key'
+    }
+    It 'shows the done summary and what stays' {
+        $text = Get-UText (New-UninstallView -Done 12 -Finished $true)
+        $text | Should Match 'Done\. ImAwake is removed\.'
+        $text | Should Match 'Kept: %LOCALAPPDATA%\\ImAwake'
+        $text | Should Match 'Press any key to close'
+    }
+    It 'shows the failed steps, at most three' {
+        $text = Get-UText (New-UninstallView -Done 12 -Finished $true -Failed @('a', 'b', 'c', 'd'))
+        $text | Should Match 'Failed: 4 item'
+        $text | Should Match '- a'
+        $text | Should Match '- c'
+        $text | Should Not Match '- d'
+        $text | Should Not Match 'Done\.'
+    }
+    It 'keeps every line inside the window' {
+        $lines = @(Get-PlainLines (Get-UninstallFrameLines (New-UninstallView -Done 12 -Finished $true -Failed @('a')) 60 30))
+        foreach ($line in $lines) { ($line.Length -lt 60) | Should Be $true }
     }
 }

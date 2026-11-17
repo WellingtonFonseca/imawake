@@ -235,15 +235,15 @@ Describe 'Get-HumorLine' {
 }
 
 Describe 'Get-SpinnerFrame' {
-    It 'moves every 250 ms' {
+    It 'moves every 200 ms, the same step as the main loop' {
         Get-SpinnerFrame 0 $false | Should Be '|'
-        Get-SpinnerFrame 249 $false | Should Be '|'
-        Get-SpinnerFrame 250 $false | Should Be '/'
-        Get-SpinnerFrame 1000 $false | Should Be '|'
+        Get-SpinnerFrame 199 $false | Should Be '|'
+        Get-SpinnerFrame 200 $false | Should Be '/'
+        Get-SpinnerFrame 800 $false | Should Be '|'
     }
     It 'uses braille dots in fancy mode' {
         Get-SpinnerFrame 0 $true | Should Be ([char]0x280B).ToString()
-        Get-SpinnerFrame 2500 $true | Should Be ([char]0x280B).ToString()
+        Get-SpinnerFrame 2000 $true | Should Be ([char]0x280B).ToString()
     }
     It 'freezes while paused, because the active time freezes' {
         $paused = Stop-AwakeClock (New-RunningState 0) 250
@@ -354,5 +354,76 @@ Describe 'Invoke-KeyPressTick' {
         $s = New-KeyPressState 0
         $null = Invoke-KeyPressTick $s 7000 { } $noLog
         $s.LastKeyMs | Should BeNullOrEmpty
+    }
+}
+
+Describe 'Get-KeyAction for uninstall' {
+    It 'maps Ctrl+U to uninstall-ask' { Get-KeyAction (New-Key U -Ctrl) | Should Be 'uninstall-ask' }
+    It 'ignores a plain u' { Get-KeyAction (New-Key U 'u') | Should Be 'none' }
+    It 'ignores Ctrl+X' { Get-KeyAction (New-Key X -Ctrl) | Should Be 'none' }
+    It 'maps y to uninstall while confirming' { Get-KeyAction (New-Key Y 'y') $true | Should Be 'uninstall' }
+    It 'maps n to uninstall-cancel while confirming' { Get-KeyAction (New-Key N 'n') $true | Should Be 'uninstall-cancel' }
+    It 'maps Esc to uninstall-cancel while confirming' { Get-KeyAction (New-Key Escape) $true | Should Be 'uninstall-cancel' }
+    It 'ignores other keys while confirming' {
+        Get-KeyAction (New-Key X 'x') $true | Should Be 'none'
+        Get-KeyAction (New-Key Enter) $true | Should Be 'none'
+        Get-KeyAction (New-Key Spacebar ' ') $true | Should Be 'none'
+        Get-KeyAction (New-Key Q 'q') $true | Should Be 'none'
+    }
+    It 'ignores Ctrl+Y and Ctrl+U while confirming' {
+        Get-KeyAction (New-Key Y -Ctrl) $true | Should Be 'none'
+        Get-KeyAction (New-Key U -Ctrl) $true | Should Be 'none'
+    }
+    It 'keeps Ctrl+C as quit while confirming' { Get-KeyAction (New-Key C -Ctrl) $true | Should Be 'quit' }
+    It 'keeps Esc as quit when not confirming' { Get-KeyAction (New-Key Escape) $false | Should Be 'quit' }
+}
+
+Describe 'Get-NextState for uninstall' {
+    function New-InstalledState { $s = New-RunningState 0; $s.CanUninstall = $true; $s }
+    It 'starts with no confirm and no uninstall' {
+        $s = New-AwakeState
+        $s.Confirm | Should Be $false
+        $s.CanUninstall | Should Be $false
+    }
+    It 'asks for the confirm on an installed copy and keeps the clock' {
+        $next = Get-NextState (New-InstalledState) 'uninstall-ask' 5000
+        $next.Confirm | Should Be $true
+        $next.Running | Should Be $true
+    }
+    It 'ignores the ask on a copy that is not installed' {
+        $next = Get-NextState (New-RunningState 0) 'uninstall-ask' 5000
+        $next.Confirm | Should Be $false
+    }
+    It 'clears the confirm on cancel' {
+        $asked = Get-NextState (New-InstalledState) 'uninstall-ask' 5000
+        (Get-NextState $asked 'uninstall-cancel' 6000).Confirm | Should Be $false
+    }
+    It 'stops the clock on uninstall and keeps the time' {
+        $next = Get-NextState (New-InstalledState) 'uninstall' 5000
+        $next.Running | Should Be $false
+        Get-ActiveMs $next 999999 | Should Be 5000
+    }
+    It 'does not touch the power request for ask and cancel' {
+        $calls, $set = New-Recorder
+        $ask = Invoke-Transition (New-InstalledState) 'uninstall-ask' 5000 $set $noLog
+        Invoke-Transition $ask 'uninstall-cancel' 6000 $set $noLog | Out-Null
+        $calls.Count | Should Be 0
+    }
+    It 'releases the power request on uninstall' {
+        $calls, $set = New-Recorder
+        Invoke-Transition (New-InstalledState) 'uninstall' 5000 $set $noLog | Out-Null
+        $calls.Count | Should Be 1
+        $calls[0] | Should Be (Get-PowerFlags (New-AwakeState))
+    }
+}
+
+Describe 'Get-ViewModel for uninstall' {
+    It 'passes the confirm and the installed flag' {
+        $s = New-RunningState 0
+        $s.CanUninstall = $true
+        $s.Confirm = $true
+        $v = Get-ViewModel $s 0 $false
+        $v.Confirm | Should Be $true
+        $v.CanUninstall | Should Be $true
     }
 }
