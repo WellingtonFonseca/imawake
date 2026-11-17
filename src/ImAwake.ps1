@@ -54,10 +54,10 @@ function Write-Screen($State, [long]$NowMs, [bool]$Fancy) {
 }
 
 # Drains every pending key; gives the new state and whether to quit or uninstall.
-# The confirm state of this pass picks the key map, because one drain can hold Ctrl+U and then y.
+# The mode of this pass picks the key map, because one drain can hold Ctrl+U and then y.
 function Read-Keys($State, [long]$NowMs) {
     while ([Console]::KeyAvailable) {
-        $action = Get-KeyAction ([Console]::ReadKey($true)) $State.Confirm
+        $action = Get-KeyAction ([Console]::ReadKey($true)) $State.Mode
         if ($action -eq 'none') { continue }
         $State = Step-State $State $action $NowMs
         if ($action -eq 'quit') { return @{ State = $State; Quit = $true; Uninstall = $false } }
@@ -111,43 +111,14 @@ function Show-Fatal($ErrorRecord) {
     [Console]::ReadKey($true) | Out-Null
 }
 
-# One ImAwake per Windows session: a second window (shortcut or imawake command) would
-# hide that the first one still holds the PC awake.
-function Lock-SingleInstance {
-    $mutex = New-Object Threading.Mutex($false, 'Local\ImAwake')
-    try {
-        if ($mutex.WaitOne(0)) { return $mutex }
-    }
-    catch [Threading.AbandonedMutexException] {
-        # The last ImAwake was killed; this process now owns the mutex.
-        return $mutex
-    }
-    $mutex.Dispose()
-    $null
-}
-
-# A mutex made by an elevated ImAwake can refuse a normal one; that also means "already running".
-function Get-SingleInstance {
-    try {
-        return Lock-SingleInstance
-    }
-    catch [UnauthorizedAccessException] {
-        return $null
-    }
-}
-
-$instance = Get-SingleInstance
+$instance = Lock-SingleInstance
 if (-not $instance) {
     Write-Host 'ImAwake is already running elsewhere. Closing in 5 seconds.'
     Start-Sleep -Seconds 5
     exit 0
 }
 
-$saved = @{
-    Title    = $Host.UI.RawUI.WindowTitle
-    Encoding = [Console]::OutputEncoding
-    CtrlC    = [Console]::TreatControlCAsInput
-}
+$saved = Get-ScreenState
 $fancy = (-not $Plain) -and [bool]$env:WT_SESSION
 $failure = $null
 try {
@@ -162,8 +133,7 @@ catch {
 finally {
     try { Set-PowerState (Get-PowerFlags (New-AwakeState)) | Out-Null }
     catch { Write-Log "release at exit failed: $_" }
-    $instance.ReleaseMutex()
-    $instance.Dispose()
+    Unlock-SingleInstance $instance
     Exit-Screen $saved
     Write-Log 'stop'
 }

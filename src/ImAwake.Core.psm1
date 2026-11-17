@@ -44,7 +44,7 @@ function New-AwakeState {
         AccumulatedMs = [long]0
         ResumedAtMs   = [long]0
         KeyPress      = $false
-        Confirm       = $false
+        Mode          = 'run'
         CanUninstall  = $false
         LastKeyMs     = $null
         Error         = $null
@@ -113,10 +113,8 @@ function Get-ConfirmKeyAction([ConsoleKeyInfo]$Key) {
     'none'
 }
 
-function Get-KeyAction([ConsoleKeyInfo]$Key, [bool]$Confirm = $false) {
+function Get-RunKeyAction([ConsoleKeyInfo]$Key) {
     $ctrl = ($Key.Modifiers -band [ConsoleModifiers]::Control) -ne 0
-    if ($ctrl -and $Key.Key -eq [ConsoleKey]::C) { return 'quit' }
-    if ($Confirm) { return Get-ConfirmKeyAction $Key }
     if ($ctrl -and $Key.Key -eq [ConsoleKey]::U) { return 'uninstall-ask' }
     if ($ctrl) { return 'none' }
     switch ($Key.Key) {
@@ -127,6 +125,14 @@ function Get-KeyAction([ConsoleKeyInfo]$Key, [bool]$Confirm = $false) {
         ([ConsoleKey]::Escape)   { return 'quit' }
     }
     'none'
+}
+
+# ValidateSet makes an old caller that passes a bool fail, instead of falling back to 'run'.
+function Get-KeyAction([ConsoleKeyInfo]$Key, [ValidateSet('run', 'confirm-uninstall')][string]$Mode = 'run') {
+    $ctrl = ($Key.Modifiers -band [ConsoleModifiers]::Control) -ne 0
+    if ($ctrl -and $Key.Key -eq [ConsoleKey]::C) { return 'quit' }
+    if ($Mode -eq 'confirm-uninstall') { return Get-ConfirmKeyAction $Key }
+    Get-RunKeyAction $Key
 }
 
 # Gives the state the action asks for. The shell applies its power flags,
@@ -152,12 +158,12 @@ function Get-NextState($State, [string]$Action, [long]$NowMs) {
         'quit' { return Stop-AwakeClock $State $NowMs }
         'uninstall-ask' {
             $next = Copy-AwakeState $State
-            $next.Confirm = [bool]$State.CanUninstall
+            if ($State.CanUninstall) { $next.Mode = 'confirm-uninstall' }
             return $next
         }
         'uninstall-cancel' {
             $next = Copy-AwakeState $State
-            $next.Confirm = $false
+            $next.Mode = 'run'
             return $next
         }
         'uninstall' { return Stop-AwakeClock $State $NowMs }
@@ -215,31 +221,22 @@ function Split-HoursMinutes([long]$Ms) {
     @([long][math]::Floor($totalMinutes / 60), [long]($totalMinutes % 60))
 }
 
-# The first minute counts in seconds, so a fresh start shows it is alive.
-function Format-Seconds([long]$Ms) {
-    '{0}s' -f [long][math]::Floor([math]::Max($Ms, 0) / 1000)
-}
+# The first minute counts in seconds, so a fresh start shows it is alive. The title is
+# shorter than the screen text: "1h20" instead of "1h 20min".
+$script:HourFormat = @{ screen = '{0}h {1:00}min'; title = '{0}h{1:00}' }
 
-function Format-Elapsed([long]$Ms) {
-    if ($Ms -lt $script:SecondsOnlyMs) { return Format-Seconds $Ms }
+function Format-Elapsed([long]$Ms, [ValidateSet('screen', 'title')][string]$Style = 'screen') {
+    if ($Ms -lt $script:SecondsOnlyMs) { return '{0}s' -f [long][math]::Floor([math]::Max($Ms, 0) / 1000) }
     $h, $m = Split-HoursMinutes $Ms
     if ($h -eq 0) { return '{0}min' -f $m }
-    '{0}h {1:00}min' -f $h, $m
-}
-
-# The title is shorter than the screen text: "1h20" instead of "1h 20min".
-function Format-TitleTime([long]$Ms) {
-    if ($Ms -lt $script:SecondsOnlyMs) { return Format-Seconds $Ms }
-    $h, $m = Split-HoursMinutes $Ms
-    if ($h -eq 0) { return '{0}min' -f $m }
-    '{0}h{1:00}' -f $h, $m
+    $script:HourFormat[$Style] -f $h, $m
 }
 
 function Get-WindowTitle($State, [long]$NowMs) {
     if (-not $State.Running) {
         return '{0} ImAwake (paused)' -f $script:Glyph.Sleeping
     }
-    "{0} I'm awake! {1} {2}" -f $script:Glyph.Coffee, $script:Glyph.EnDash, (Format-TitleTime (Get-ActiveMs $State $NowMs))
+    "{0} I'm awake! {1} {2}" -f $script:Glyph.Coffee, $script:Glyph.EnDash, (Format-Elapsed (Get-ActiveMs $State $NowMs) 'title')
 }
 
 # The line follows the active time, not chance, so it never jumps between redraws.
@@ -283,7 +280,7 @@ function Get-ViewModel($State, [long]$NowMs, [bool]$Fancy) {
         Running = [bool]$State.Running
         Display = [bool]$State.Display
         KeyPress = [bool]$State.KeyPress
-        Confirm = [bool]$State.Confirm
+        Mode = $State.Mode
         CanUninstall = [bool]$State.CanUninstall
         Elapsed = Format-Elapsed $activeMs
         Humor   = Get-HumorLine $activeMs

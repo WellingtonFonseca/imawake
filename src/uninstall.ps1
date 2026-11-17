@@ -34,6 +34,7 @@ function Write-Log([string]$Message) {
 }
 
 function Remove-PathStep {
+    if ($SkipUserState) { return 'skipped' }
     $changed = Edit-UserPath { param($raw) Remove-PathEntry $raw $binDir } $backupPath
     if ($changed) { return 'ok' }
     'skipped'
@@ -41,6 +42,7 @@ function Remove-PathStep {
 
 # Deletes the shortcut only when it starts this app, never another file with the same name.
 function Remove-ShortcutStep {
+    if ($SkipUserState) { return 'skipped' }
     $path = Get-ShortcutPath
     if (-not (Test-Path -LiteralPath $path)) { return 'skipped' }
     $link = (New-Object -ComObject WScript.Shell).CreateShortcut($path)
@@ -49,10 +51,9 @@ function Remove-ShortcutStep {
     'ok'
 }
 
-function Remove-FileStep([string]$Name) {
-    $path = Join-Path $appDir $Name
-    if (-not (Test-Path -LiteralPath $path)) { return 'skipped' }
-    Remove-Item -LiteralPath $path -Force
+function Remove-FileStep([string]$Path) {
+    if (-not (Test-Path -LiteralPath $Path)) { return 'skipped' }
+    Remove-Item -LiteralPath $Path -Force
     'ok'
 }
 
@@ -64,58 +65,23 @@ function Remove-FolderStep([string]$Path) {
     'ok'
 }
 
-function Invoke-Step([pscustomobject]$Item, $Results) {
-    $keep = ($Item.Id -in 'module', 'marker', 'self') -and (Test-KeepUninstaller $Results)
-    if ($keep) { return 'skipped' }
-    switch ($Item.Id) {
-        'path'       { if ($SkipUserState) { return 'skipped' }; return Remove-PathStep }
-        'shortcut'   { if ($SkipUserState) { return 'skipped' }; return Remove-ShortcutStep }
-        'bin-folder' { return Remove-FolderStep $binDir }
-        'app-folder' { return Remove-FolderStep $appDir }
-        default      { return Remove-FileStep $Item.Name }
-    }
-}
-
-function Get-Result([pscustomobject]$Item, $Results) {
-    try {
-        [pscustomobject]@{ Label = $Item.Label; Status = (Invoke-Step $Item $Results); Reason = '' }
-    }
-    catch {
-        Write-Log "$($Item.Label) failed: $_"
-        [pscustomobject]@{ Label = $Item.Label; Status = 'failed'; Reason = "$_" }
-    }
-}
-
-function Get-View($Items, $Results, [bool]$Finished, [bool]$Fancy) {
-    $done = @($Results).Count
-    $current = if ($done -lt $Items.Count) { $Items[$done].Label } else { '' }
-    [pscustomobject]@{
-        Fancy = $Fancy; Done = $done; Total = $Items.Count; Current = $current; Finished = $Finished
-        Failed = @($Results | Where-Object { $_.Status -eq 'failed' } | ForEach-Object { $_.Label })
-    }
-}
-
 function Write-View($View) {
     $width = [Console]::WindowWidth
     $height = [Console]::WindowHeight
     Write-Lines (Get-UninstallFrameLines $View $width $height) $width $height
 }
 
-function Invoke-Uninstall([bool]$Fancy) {
-    $items = @(Get-UninstallItems)
-    $results = @()
-    foreach ($item in $items) {
-        if (-not $Silent) { Write-View (Get-View $items $results $false $Fancy) }
-        $results += Get-Result $item $results
-    }
-    $view = Get-View $items $results $true $Fancy
-    if ($Silent) {
-        $results | ForEach-Object { Write-Host ('{0}: {1}' -f $_.Status, $_.Label) }
-        return $view
-    }
-    Write-View $view
-    [Console]::ReadKey($true) | Out-Null
-    $view
+# The real effects of this host. -Silent turns the screen and the key wait into nothing and
+# prints one line per step instead; -SkipUserState turns the PATH and shortcut steps into skips.
+$effects = @{
+    RemovePath     = { Remove-PathStep }
+    RemoveShortcut = { Remove-ShortcutStep }
+    RemoveFile     = { param($Path) Remove-FileStep $Path }
+    RemoveFolder   = { param($Path) Remove-FolderStep $Path }
+    Show           = { param($View) if (-not $Silent) { Write-View $View } }
+    Report         = { param($Results) if ($Silent) { $Results | ForEach-Object { Write-Host ('{0}: {1}' -f $_.Status, $_.Label) } } }
+    WaitKey        = { if (-not $Silent) { [Console]::ReadKey($true) | Out-Null } }
+    Log            = { param($Message) Write-Log $Message }
 }
 
 # A message the user must read: the window may close at once when it ends.
@@ -132,18 +98,11 @@ if (-not (Test-InstalledCopy $appDir)) {
     Stop-WithMessage 'Not an installed copy of ImAwake. Nothing removed.'
 }
 
-# The app holds this mutex while it runs, so it also tells that the app has exited.
-# An elevated app makes a mutex that a normal process cannot open; that also means "runs".
+# The app holds the mutex while it runs, so waiting for it also waits for the app to exit.
 $mutex = $null
 if (-not $SkipUserState) {
-    $owned = $false
-    try {
-        $mutex = New-Object Threading.Mutex($false, 'Local\ImAwake')
-        $owned = $mutex.WaitOne(10000)
-    }
-    catch [Threading.AbandonedMutexException] { $owned = $true }
-    catch [UnauthorizedAccessException] { $owned = $false }
-    if (-not $owned) {
+    $mutex = Lock-SingleInstance 10000
+    if (-not $mutex) {
         Stop-WithMessage 'ImAwake still runs. Close it and try again.'
     }
 }
@@ -153,19 +112,15 @@ $saved = $null
 $view = $null
 try {
     if (-not $Silent) {
-        $saved = @{
-            Title    = $Host.UI.RawUI.WindowTitle
-            Encoding = [Console]::OutputEncoding
-            CtrlC    = [Console]::TreatControlCAsInput
-        }
+        $saved = Get-ScreenState
         Initialize-Native
         Enter-Screen
     }
-    $view = Invoke-Uninstall ([bool]$env:WT_SESSION)
+    $view = Invoke-Uninstall @(Get-UninstallItems) $appDir $effects ([bool]$env:WT_SESSION)
 }
 finally {
     if ($saved) { Exit-Screen $saved }
-    if ($mutex) { $mutex.ReleaseMutex(); $mutex.Dispose() }
+    Unlock-SingleInstance $mutex
 }
 if ($view.Failed.Count -gt 0) { exit 3 }
 exit 0

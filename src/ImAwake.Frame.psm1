@@ -84,14 +84,14 @@ function Get-Checkbox([bool]$On) {
     '[ ]'
 }
 
-# The content rows of the box; each row is a list of segments.
-function Get-ContentRows($View) {
+# The rows above the footer: the title, the status and the options.
+function Get-BodyRows($View) {
     $coffee = if ($View.Fancy) { Get-Glyph 0x2615 } else { 'c[_]' }
     $errorRow = @()
     if ($View.Error) {
         $errorRow = @(New-Segment "! $($View.Error)" 'Error')
     }
-    $rows = @(
+    @(
         , @(New-Segment "$coffee ImAwake" 'Header')
         , @()
         , (Get-StatusSegments $View)
@@ -102,10 +102,16 @@ function Get-ContentRows($View) {
         , @(New-Segment "$(Get-Checkbox $View.KeyPress) Press F15 every minute (keeps chat apps active)")
         , $errorRow
     )
-    if ($View.Confirm) { return $rows + (Get-ConfirmRows) }
-    $rows += , (Get-HelpSegments $View.Running)
-    $rows += , @(Get-UninstallHintSegments $View.CanUninstall)
-    $rows
+}
+
+# The two last rows: the uninstall question, or the help row and the uninstall hint.
+# Both give two rows, so the box height never changes.
+function Get-FooterRows($View) {
+    if ($View.Mode -eq 'confirm-uninstall') { return Get-ConfirmRows }
+    @(
+        , (Get-HelpSegments $View.Running)
+        , @(Get-UninstallHintSegments $View.CanUninstall)
+    )
 }
 
 function Get-RowWidth($Segments) {
@@ -182,7 +188,7 @@ function Get-BoxLines($Rows, [bool]$Fancy, [int]$Width, [int]$Height) {
 }
 
 function Get-FrameLines($View, [int]$Width, [int]$Height) {
-    Get-BoxLines (Get-ContentRows $View) $View.Fancy $Width $Height
+    Get-BoxLines (@(Get-BodyRows $View) + @(Get-FooterRows $View)) $View.Fancy $Width $Height
 }
 
 function Get-CenteredLines([string[]]$Lines, [int]$BoxWidth, [int]$Usable, [int]$Height) {

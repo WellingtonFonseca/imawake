@@ -38,6 +38,7 @@ It runs in a new Windows Terminal window opened by a desktop shortcut.
 - SendInput fails or is ignored on a locked session; a failed press waits the full 59 s before it retries, so the log gets one line per minute.
 - `installed.txt` in the app folder marks a copy made by the installer. The app (Ctrl+U) and `uninstall.ps1` act only with it. The installer writes it last.
 - `uninstall.ps1` runs from the app folder and deletes it. PowerShell has read every file by then, so deleting works. The process folder must be `%TEMP%`, or the folder delete fails.
-- `[Console]::TreatControlCAsInput` and `ReadKey` throw with no console. `uninstall.ps1 -Silent -SkipUserState` is the test mode: no screen, no PATH, no shortcut, no mutex.
+- `[Console]::TreatControlCAsInput` and `ReadKey` throw with no console. `uninstall.ps1 -Silent -SkipUserState` is the child-process test mode: it only picks the effects the host wires (no screen, no PATH, no shortcut, no mutex). The step logic is tested in process with fake effects (`Invoke-Uninstall`).
 - A new file in `src/` must be in `Get-AppFiles` (`ImAwake.Uninstall.psm1`); a test compares the list with the folder.
 - A row built with `, (Function)` disappears when the function gives no output. Use `, @(Function)` for a row that may be empty.
+- `Get-KeyAction` takes a mode string (`run`, `confirm-uninstall`), checked by `ValidateSet`; a bool fails on purpose. `State.Mode` is the one place that says which screen shows.

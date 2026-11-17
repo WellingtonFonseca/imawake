@@ -8,10 +8,10 @@ function Get-PlainLines($Lines) {
     $Lines | ForEach-Object { $ansi.Replace($_, '') }
 }
 
-function New-View([bool]$Running = $true, [bool]$Fancy = $false, $ErrorText = $null, [bool]$Display = $true, [bool]$KeyPress = $false, [bool]$Confirm = $false, [bool]$CanUninstall = $false) {
+function New-View([bool]$Running = $true, [bool]$Fancy = $false, $ErrorText = $null, [bool]$Display = $true, [bool]$KeyPress = $false, [string]$Mode = 'run', [bool]$CanUninstall = $false) {
     [pscustomobject]@{
         Running = $Running; Display = $Display; KeyPress = $KeyPress; Elapsed = '1h 20min'
-        Humor = 'Just resting my eyes...'; Spinner = '|'; Error = $ErrorText; Fancy = $Fancy; Confirm = $Confirm; CanUninstall = $CanUninstall
+        Humor = 'Just resting my eyes...'; Spinner = '|'; Error = $ErrorText; Fancy = $Fancy; Mode = $Mode; CanUninstall = $CanUninstall
     }
 }
 
@@ -86,6 +86,20 @@ Describe 'Limit-Text' {
     }
 }
 
+Describe 'Get-FrameLines row order' {
+    It 'draws the title, then the options, then the help and the hint' {
+        $lines = @(Get-PlainLines (Get-FrameLines (New-View -CanUninstall $true) 100 30))
+        $title = [array]::FindIndex($lines, [Predicate[string]]{ param($l) $l -match 'ImAwake' })
+        $option = [array]::FindIndex($lines, [Predicate[string]]{ param($l) $l -match 'Keep the PC from sleeping' })
+        $help = [array]::FindIndex($lines, [Predicate[string]]{ param($l) $l -match 'space pause' })
+        $hint = [array]::FindIndex($lines, [Predicate[string]]{ param($l) $l -match 'ctrl\+u uninstall' })
+        ($title -ge 0) | Should Be $true
+        ($title -lt $option) | Should Be $true
+        ($option -lt $help) | Should Be $true
+        ($help -lt $hint) | Should Be $true
+    }
+}
+
 Describe 'Get-FrameLines for uninstall' {
     function Get-Text($View) { (Get-PlainLines (Get-FrameLines $View 120 30)) -join "`n" }
     It 'shows the ctrl+u hint on an installed copy' {
@@ -95,14 +109,14 @@ Describe 'Get-FrameLines for uninstall' {
         Get-Text (New-View) | Should Not Match 'ctrl\+u'
     }
     It 'shows the confirm prompt in place of the help rows' {
-        $text = Get-Text (New-View -CanUninstall $true -Confirm $true)
+        $text = Get-Text (New-View -CanUninstall $true -Mode 'confirm-uninstall')
         $text | Should Match 'Uninstall ImAwake\?\s+y yes\s+.\s+n no'
         $text | Should Match 'Removes the app, the shortcut and the PATH entry'
         $text | Should Not Match 'q quit'
         $text | Should Not Match 'space pause'
     }
     It 'keeps the box size in the three views' {
-        $views = @((New-View -KeyPress $true), (New-View -KeyPress $true -CanUninstall $true), (New-View -KeyPress $true -CanUninstall $true -Confirm $true))
+        $views = @((New-View -KeyPress $true), (New-View -KeyPress $true -CanUninstall $true), (New-View -KeyPress $true -CanUninstall $true -Mode 'confirm-uninstall'))
         $sizes = $views | ForEach-Object {
             $lines = @(Get-PlainLines (Get-FrameLines $_ 120 30))
             $box = @($lines | Where-Object { $_.Trim() })

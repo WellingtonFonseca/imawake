@@ -84,4 +84,30 @@ function Enable-VirtualTerminal {
     }
 }
 
-Export-ModuleMember -Function Initialize-Native, Set-PowerState, Send-F15Key, Enable-VirtualTerminal
+# One ImAwake per Windows session: the app holds this mutex while it runs, so it also tells
+# that the app is gone. Gives the mutex, or $null when another process holds it.
+# An abandoned mutex (the last owner was killed) is taken over. A mutex made by an elevated
+# app refuses a normal process: that also means "runs".
+function Lock-SingleInstance([int]$TimeoutMs = 0, [string]$Name = 'Local\ImAwake') {
+    $mutex = $null
+    try {
+        $mutex = New-Object Threading.Mutex($false, $Name)
+        if ($mutex.WaitOne($TimeoutMs)) { return $mutex }
+    }
+    catch [Threading.AbandonedMutexException] {
+        return $mutex
+    }
+    catch [UnauthorizedAccessException] {
+        return $null
+    }
+    if ($mutex) { $mutex.Dispose() }
+    $null
+}
+
+function Unlock-SingleInstance($Mutex) {
+    if (-not $Mutex) { return }
+    $Mutex.ReleaseMutex()
+    $Mutex.Dispose()
+}
+
+Export-ModuleMember -Function Lock-SingleInstance, Unlock-SingleInstance, Initialize-Native, Set-PowerState, Send-F15Key, Enable-VirtualTerminal

@@ -59,3 +59,54 @@ Describe 'Send-F15Key (real Windows call)' {
         { Send-F15Key } | Should Not Throw
     }
 }
+
+# A second thread holds the mutex: a mutex belongs to the thread that took it.
+function Start-MutexHolder([string]$Name, [bool]$Release) {
+    $signal = New-Object Threading.EventWaitHandle($false, [Threading.EventResetMode]::ManualReset, "$Name-signal")
+    $ps = [powershell]::Create()
+    [void]$ps.AddScript({
+        param($mutexName, $signalName, $release)
+        $m = New-Object Threading.Mutex($false, $mutexName)
+        [void]$m.WaitOne()
+        [void][Threading.EventWaitHandle]::OpenExisting($signalName).Set()
+        if ($release) { Start-Sleep -Seconds 30 }
+    }).AddArgument($Name).AddArgument("$Name-signal").AddArgument($Release)
+    $async = $ps.BeginInvoke()
+    @{ Ps = $ps; Async = $async; Signal = $signal }
+}
+
+Describe 'Lock-SingleInstance' {
+    function New-MutexName { 'Local\ImAwakeTest-{0}-{1}' -f (Get-Date -Format 'yyyyMMddHHmmss'), (Get-Random) }
+    It 'gives the mutex for a free name, and Unlock-SingleInstance frees it' {
+        $name = New-MutexName
+        $first = Lock-SingleInstance 0 $name
+        ($first -is [Threading.Mutex]) | Should Be $true
+        Unlock-SingleInstance $first
+        $second = Lock-SingleInstance 0 $name
+        ($second -is [Threading.Mutex]) | Should Be $true
+        Unlock-SingleInstance $second
+    }
+    It 'gives $null while another thread holds the mutex' {
+        $name = New-MutexName
+        $holder = Start-MutexHolder $name $true
+        try {
+            $holder.Signal.WaitOne(5000) | Should Be $true
+            Lock-SingleInstance 0 $name | Should BeNullOrEmpty
+        }
+        finally {
+            $holder.Ps.Stop()
+            $holder.Ps.Dispose()
+        }
+    }
+    It 'takes over a mutex that the last owner never released' {
+        $name = New-MutexName
+        $holder = Start-MutexHolder $name $false
+        $holder.Signal.WaitOne(5000) | Should Be $true
+        $holder.Ps.EndInvoke($holder.Async)
+        $holder.Ps.Dispose()
+        $mutex = Lock-SingleInstance 0 $name
+        try { ($mutex -is [Threading.Mutex]) | Should Be $true }
+        finally { Unlock-SingleInstance $mutex }
+    }
+    It 'does nothing for a null mutex' { { Unlock-SingleInstance $null } | Should Not Throw }
+}

@@ -6,7 +6,7 @@
 
 ImAwake is a tiny console app for Windows. Open it and your PC will not go to sleep. Close it and everything goes back to normal. No settings to change, no installer to trust, nothing left running in the background.
 
-![ImAwake running in Windows Terminal, with the F15 option on](docs/screenshot.png)
+![ImAwake running in Windows Terminal](docs/screenshot.png)
 
 ## Why
 
@@ -81,11 +81,11 @@ The code is split so the logic can be tested without Windows:
 | --- | --- |
 | `ImAwake.Core.psm1` | State, timer, texts — pure logic, no console and no clock reads |
 | `ImAwake.Frame.psm1` | Draws the box as text lines — pure, no console |
-| `ImAwake.Power.psm1` | The only place that calls Windows (power request, F15 key) |
+| `ImAwake.Power.psm1` | The only place that calls Windows (power request, F15 key, single-instance mutex) |
 | `ImAwake.Launch.psm1` | Helpers for the `imawake` command and the uninstall window |
 | `ImAwake.Screen.psm1` | The console screen: alternate screen, frame write, title |
 | `ImAwake.UserPath.psm1`, `ImAwake.Setup.psm1` | The user PATH: pure text rules, and the registry edit with backup |
-| `ImAwake.Uninstall.psm1` | The file list and the uninstall steps — pure |
+| `ImAwake.Uninstall.psm1` | The file list, the uninstall steps and their order; the real effects (registry, files) come in from `uninstall.ps1` |
 | `uninstall.ps1` | Removes ImAwake; started with `Ctrl+U` |
 | `ImAwake.ps1` | The main loop: reads keys, draws the screen, applies the power state |
 
