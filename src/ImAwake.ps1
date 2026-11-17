@@ -15,7 +15,7 @@ Import-Module (Join-Path $PSScriptRoot 'ImAwake.Frame.psm1') -Force
 Import-Module (Join-Path $PSScriptRoot 'ImAwake.Power.psm1') -Force
 
 $script:Esc = [char]27
-$script:LoopDelayMs = 100
+$script:LoopDelayMs = 200
 $script:LogPath = Join-Path $env:LOCALAPPDATA 'ImAwake\imawake.log'
 $script:LastFrame = ''
 $script:LastSize = ''

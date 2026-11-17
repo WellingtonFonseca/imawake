@@ -41,7 +41,7 @@ function Get-BoxChars([bool]$Fancy) {
 function Get-StatusSegments($View) {
     if (-not $View.Running) {
         $zzz = if ($View.Fancy) { Get-Glyph 0x1F4A4 } else { 'zz' }
-        return @(New-Segment "$zzz Paused at $($View.Elapsed) - your PC can sleep" 'Paused')
+        return @(New-Segment "$zzz Paused - your PC can sleep" 'Paused')
     }
     @(
         (New-Segment $View.Spinner 'Awake'),

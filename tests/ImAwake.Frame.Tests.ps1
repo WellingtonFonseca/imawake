@@ -34,14 +34,14 @@ Describe 'Get-FrameLines' {
     }
     It 'draws the paused screen' {
         $text = (Get-PlainLines (Get-FrameLines (New-View -Running $false) 80 24)) -join "`n"
-        $text | Should Match 'Paused at 1h 20min - your PC can sleep'
+        $text | Should Match 'Paused - your PC can sleep'
         $text | Should Match 'space resume'
         $text | Should Not Match 'Awake for'
         $text | Should Match 'zz Paused'
     }
     It 'draws the sleep glyph on the paused screen in fancy mode' {
         $text = (Get-PlainLines (Get-FrameLines (New-View -Running $false -Fancy $true) 80 24)) -join "`n"
-        $text | Should Match ([regex]::Escape("$([char]::ConvertFromUtf32(0x1F4A4)) Paused at"))
+        $text | Should Match ([regex]::Escape("$([char]::ConvertFromUtf32(0x1F4A4)) Paused"))
     }
     It 'shows the screen option off' {
         $text = (Get-PlainLines (Get-FrameLines (New-View -Display $false) 80 24)) -join "`n"

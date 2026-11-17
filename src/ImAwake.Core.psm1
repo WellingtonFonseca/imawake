@@ -6,6 +6,7 @@
 Set-StrictMode -Version Latest
 
 $script:HumorIntervalMs = 180000
+$script:SecondsOnlyMs = 60000
 $script:SpinnerStepMs = 250
 # Under one minute, so chat apps that mark you away after 1 min of idle time never do.
 $script:KeyPressIntervalMs = 59000
@@ -79,6 +80,14 @@ function Stop-AwakeClock($State, [long]$NowMs) {
     $next
 }
 
+# A pause ends the session: the next resume counts from zero, so a long
+# pause never comes back as a huge elapsed time.
+function Reset-AwakeClock($State) {
+    $next = Copy-AwakeState $State
+    $next.AccumulatedMs = [long]0
+    $next
+}
+
 # ES_CONTINUOUS alone releases the request; it is the value for a paused state.
 function Get-PowerFlags($State) {
     if (-not $State.Running) {
@@ -110,7 +119,7 @@ function Get-KeyAction([ConsoleKeyInfo]$Key) {
 function Get-NextState($State, [string]$Action, [long]$NowMs) {
     switch ($Action) {
         'toggle-pause' {
-            if ($State.Running) { return Stop-AwakeClock $State $NowMs }
+            if ($State.Running) { return Reset-AwakeClock (Stop-AwakeClock $State $NowMs) }
             return Start-AwakeClock $State $NowMs
         }
         'toggle-display' {
@@ -180,19 +189,31 @@ function Split-HoursMinutes([long]$Ms) {
     @([long][math]::Floor($totalMinutes / 60), [long]($totalMinutes % 60))
 }
 
+# The first minute counts in seconds, so a fresh start shows it is alive.
+function Format-Seconds([long]$Ms) {
+    '{0}s' -f [long][math]::Floor([math]::Max($Ms, 0) / 1000)
+}
+
 function Format-Elapsed([long]$Ms) {
+    if ($Ms -lt $script:SecondsOnlyMs) { return Format-Seconds $Ms }
     $h, $m = Split-HoursMinutes $Ms
     if ($h -eq 0) { return '{0}min' -f $m }
     '{0}h {1:00}min' -f $h, $m
+}
+
+# The title is shorter than the screen text: "1h20" instead of "1h 20min".
+function Format-TitleTime([long]$Ms) {
+    if ($Ms -lt $script:SecondsOnlyMs) { return Format-Seconds $Ms }
+    $h, $m = Split-HoursMinutes $Ms
+    if ($h -eq 0) { return '{0}min' -f $m }
+    '{0}h{1:00}' -f $h, $m
 }
 
 function Get-WindowTitle($State, [long]$NowMs) {
     if (-not $State.Running) {
         return '{0} ImAwake (paused)' -f $script:Glyph.Sleeping
     }
-    $h, $m = Split-HoursMinutes (Get-ActiveMs $State $NowMs)
-    $time = if ($h -eq 0) { '{0}min' -f $m } else { '{0}h{1:00}' -f $h, $m }
-    "{0} I'm awake! {1} {2}" -f $script:Glyph.Coffee, $script:Glyph.EnDash, $time
+    "{0} I'm awake! {1} {2}" -f $script:Glyph.Coffee, $script:Glyph.EnDash, (Format-TitleTime (Get-ActiveMs $State $NowMs))
 }
 
 # The line follows the active time, not chance, so it never jumps between redraws.
