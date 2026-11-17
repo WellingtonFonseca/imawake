@@ -112,5 +112,14 @@
         @{ Label = 'Format-Column: pads by characters, not cells'; File = 'src/ImAwake.Core.psm1'; Tests = @('ImAwake.Core.Tests.ps1')
            Old = '$Width - (Get-DisplayWidth $Text)'
            New = '$Width - $Text.Length' }
+        @{ Label = 'Get-DisplayWidth: fast path reaches into the wide ranges'; File = 'src/ImAwake.Core.psm1'; Tests = @('ImAwake.Core.Tests.ps1')
+           Old = 'if ($code -lt $script:WideStart) {'
+           New = 'if ($code -lt 0x2000) {' }
+        @{ Label = 'Restore-Output: a $null encoding is applied'; File = 'src/ImAwake.Screen.psm1'; Tests = @('ImAwake.Screen.Tests.ps1')
+           Old = 'if ($Previous) { [Console]::OutputEncoding = $Previous }'
+           New = 'if ($true) { [Console]::OutputEncoding = $Previous }' }
+        @{ Label = 'Use-Utf8Output: redirected streams are not skipped'; File = 'src/ImAwake.Screen.psm1'; Tests = @('ImAwake.Screen.Tests.ps1')
+           Old = 'if ([Console]::IsOutputRedirected -and [Console]::IsErrorRedirected) { return $null }'
+           New = 'if ($false) { return $null }' }
     )
 }

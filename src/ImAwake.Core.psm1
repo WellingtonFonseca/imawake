@@ -29,13 +29,12 @@ $script:Glyph = @{
     EnDash   = Get-Glyph 0x2013
 }
 
-# Code points inside the BMP that a terminal draws two cells wide.
-$script:WideCodePoints = @(0x2615)
-
-# The East Asian wide ranges (first, last): Hangul Jamo, CJK and kana, Hangul syllables,
-# CJK compatibility, full-width forms. A terminal draws them two cells wide.
+# The BMP ranges (first, last) that a terminal draws two cells wide: Hangul Jamo, the coffee
+# glyph, CJK and kana, Hangul syllables, CJK compatibility, full-width forms. Every range
+# starts at WideStart or higher, so Get-DisplayWidth counts a lower character as one cell.
+$script:WideStart = 0x1100
 $script:WideRanges = @(
-    @(0x1100, 0x115F), @(0x2E80, 0xA4CF), @(0xAC00, 0xD7A3), @(0xF900, 0xFAFF),
+    @(0x1100, 0x115F), @(0x2615, 0x2615), @(0x2E80, 0xA4CF), @(0xAC00, 0xD7A3), @(0xF900, 0xFAFF),
     @(0xFE30, 0xFE4F), @(0xFF00, 0xFF60), @(0xFFE0, 0xFFE6)
 )
 
@@ -272,6 +271,14 @@ function Get-SpinnerFrame([long]$ActiveMs, [bool]$Fancy) {
     $frames[[long][math]::Floor([math]::Max($ActiveMs, 0) / $script:SpinnerStepMs) % $frames.Count]
 }
 
+# The cells of one BMP character: 2 for a wide one, else 1.
+function Get-CharWidth([int]$Code) {
+    foreach ($range in $script:WideRanges) {
+        if ($Code -ge $range[0] -and $Code -le $range[1]) { return 2 }
+    }
+    1
+}
+
 function Get-DisplayWidth([string]$Text) {
     $width = 0
     for ($i = 0; $i -lt $Text.Length; $i++) {
@@ -280,7 +287,9 @@ function Get-DisplayWidth([string]$Text) {
             $i++
             continue
         }
-        $width += Get-CharWidth ([int]$Text[$i])
+        $code = [int]$Text[$i]
+        if ($code -lt $script:WideStart) { $width++; continue }
+        $width += Get-CharWidth $code
     }
     $width
 }
@@ -288,15 +297,6 @@ function Get-DisplayWidth([string]$Text) {
 # Pads by cells, not by characters: a Chinese character takes two cells.
 function Format-Column([string]$Text, [int]$Width) {
     $Text + (' ' * [math]::Max(0, $Width - (Get-DisplayWidth $Text)))
-}
-
-# The cells of one BMP character: 2 for a wide one, else 1.
-function Get-CharWidth([int]$Code) {
-    if ($script:WideCodePoints -contains $Code) { return 2 }
-    foreach ($range in $script:WideRanges) {
-        if ($Code -ge $range[0] -and $Code -le $range[1]) { return 2 }
-    }
-    1
 }
 
 # Everything the frame needs, already turned into text. Text is the language table: the
