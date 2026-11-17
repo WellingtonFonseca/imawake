@@ -27,6 +27,12 @@ Describe 'Get-AppFiles' {
     }
 }
 
+Describe 'Get-ShortcutPath' {
+    It 'is ImAwake.lnk on the desktop, the file the installer makes' {
+        Get-ShortcutPath | Should BeExactly (Join-Path ([Environment]::GetFolderPath('Desktop')) 'ImAwake.lnk')
+    }
+}
+
 Describe 'Get-UninstallItems' {
     It 'does the PATH and the shortcut first, then the files' {
         $items = @(Get-UninstallItems)

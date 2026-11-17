@@ -15,7 +15,7 @@ Set-Location $env:TEMP
 [Environment]::CurrentDirectory = $env:TEMP
 
 $appDir = $PSScriptRoot
-foreach ($name in 'Core', 'Frame', 'Power', 'Screen', 'Setup', 'Uninstall', 'UserPath', 'Launch') {
+foreach ($name in 'Frame', 'Power', 'Screen', 'Setup', 'Uninstall', 'UserPath', 'Launch') {
     Import-Module (Join-Path $appDir "ImAwake.$name.psm1") -Force
 }
 
@@ -41,7 +41,7 @@ function Remove-PathStep {
 
 # Deletes the shortcut only when it starts this app, never another file with the same name.
 function Remove-ShortcutStep {
-    $path = Join-Path ([Environment]::GetFolderPath('Desktop')) 'ImAwake.lnk'
+    $path = Get-ShortcutPath
     if (-not (Test-Path -LiteralPath $path)) { return 'skipped' }
     $link = (New-Object -ComObject WScript.Shell).CreateShortcut($path)
     if (-not (Test-AppCommandLine $link.Arguments (Join-Path $appDir 'ImAwake.ps1'))) { return 'skipped' }

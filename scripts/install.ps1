@@ -49,8 +49,7 @@ function New-Shortcut {
     if (-not (Test-Path $terminal)) {
         throw "Windows Terminal not found at $terminal"
     }
-    $desktop = [Environment]::GetFolderPath('Desktop')
-    $link = (New-Object -ComObject WScript.Shell).CreateShortcut((Join-Path $desktop 'ImAwake.lnk'))
+    $link = (New-Object -ComObject WScript.Shell).CreateShortcut((Get-ShortcutPath))
     $link.TargetPath = $terminal
     $link.Arguments = Get-LaunchArguments $powershell (Join-Path $TargetDir 'ImAwake.ps1')
     $link.WorkingDirectory = $TargetDir
