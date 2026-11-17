@@ -14,6 +14,12 @@ function Get-AppFiles {
     )
 }
 
+# The desktop shortcut the installer makes and the uninstaller removes: one definition, so
+# the two never point to different files.
+function Get-ShortcutPath {
+    Join-Path ([Environment]::GetFolderPath('Desktop')) 'ImAwake.lnk'
+}
+
 # The files uninstall.ps1 imports. They go after the other files and stay after a failed
 # step, so the script can run again.
 function Get-ModuleFiles {
@@ -57,4 +63,4 @@ function Test-KeepUninstaller($Results) {
     $false
 }
 
-Export-ModuleMember -Function Get-AppFiles, Get-ModuleFiles, Get-MarkerName, Test-InstalledCopy, Get-UninstallItems, Test-KeepUninstaller
+Export-ModuleMember -Function Get-ShortcutPath, Get-AppFiles, Get-ModuleFiles, Get-MarkerName, Test-InstalledCopy, Get-UninstallItems, Test-KeepUninstaller
