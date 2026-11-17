@@ -68,13 +68,13 @@ Inside the window:
 | `space` | Pause / resume |
 | `d` | Keep the screen on (on / off) |
 | `f` | Press F15 every 59 s to stay "Available" in chat apps (on / off) |
-| `l` | Change the language (English / Português); ImAwake remembers your choice |
+| `l` | Change the language (English, Español, Français, Português, Русский, 中文); ImAwake remembers your choice |
 | `Ctrl+U` | Uninstall ImAwake (asks first: `y` yes, `n` no) |
 | `q`, `Esc` or `Ctrl+C` | Quit — the PC can sleep again |
 
 ## Language
 
-ImAwake starts in the language of Windows: Portuguese (Brazil) or English. Any other Windows language starts in English. Press `l` to change the language; ImAwake saves your choice in `%LOCALAPPDATA%\ImAwake\language.txt` and uses it the next time. The name **ImAwake** and the command `imawake` stay the same in every language.
+ImAwake starts in the language of Windows: English, Spanish, French, Portuguese (Brazil), Russian or Chinese (Simplified). A regional variant uses the file with the same two-letter code (for example `es-MX` uses Spanish, and `zh-TW` uses Simplified Chinese). Any other Windows language starts in English. Arabic, Urdu, Hindi and Bengali are not available: Windows Terminal cannot draw right-to-left text, and it has no monospace font for the Indic scripts, so the box would break. Press `l` to change the language; ImAwake saves your choice in `%LOCALAPPDATA%\ImAwake\language.txt` and uses it the next time. The name **ImAwake** and the command `imawake` stay the same in every language.
 
 To add a language, copy `src\lang\en.psd1` to a new file named after the language (for example `es.psd1`) and translate the texts. Keep every key and every `{0}` and `{app}` marker, and save the file as UTF-8 with a BOM. Add the file name to `Get-AppFiles` in `ImAwake.Uninstall.psm1`, so the installer copies it. The tests check all of this.
 
@@ -90,7 +90,7 @@ The code is split so the logic can be tested without Windows:
 | `ImAwake.Frame.psm1` | Draws the box as text lines — pure, no console |
 | `ImAwake.Text.psm1` | Fills a text, picks the language, picks the plural — pure; the app name is fixed here |
 | `ImAwake.Language.psm1` | Reads `lang\*.psd1` and the saved language choice |
-| `lang\en.psd1`, `lang\pt-BR.psd1` | The texts of each language |
+| `lang\*.psd1` (`en`, `es`, `fr`, `pt-BR`, `ru`, `zh-CN`) | The texts of each language |
 | `ImAwake.Power.psm1` | The only place that calls Windows (power request, F15 key, single-instance mutex) |
 | `ImAwake.Launch.psm1` | Helpers for the `imawake` command and the uninstall window |
 | `ImAwake.Screen.psm1` | The console screen: alternate screen, frame write, title |

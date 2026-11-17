@@ -118,10 +118,14 @@ function Start-Uninstall {
 # A fatal error stays on screen until a key press; otherwise the window closes and hides it.
 function Show-Fatal($ErrorRecord) {
     Write-Log "fatal: $ErrorRecord`n$($ErrorRecord.ScriptStackTrace)"
-    [Console]::Error.WriteLine((Format-Text $script:Text 'AppStopped' @($ErrorRecord)))
-    [Console]::Error.WriteLine((Format-Text $script:Text 'AppLogPath' @($script:LogPath)))
-    [Console]::Error.WriteLine((Format-Text $script:Text 'PressAnyKeyMsg'))
-    [Console]::ReadKey($true) | Out-Null
+    $previous = Use-Utf8Output
+    try {
+        [Console]::Error.WriteLine((Format-Text $script:Text 'AppStopped' @($ErrorRecord)))
+        [Console]::Error.WriteLine((Format-Text $script:Text 'AppLogPath' @($script:LogPath)))
+        [Console]::Error.WriteLine((Format-Text $script:Text 'PressAnyKeyMsg'))
+        [Console]::ReadKey($true) | Out-Null
+    }
+    finally { Restore-Output $previous }
 }
 
 # The language files are missing or broken, so there is no text table: this one message is
@@ -143,8 +147,12 @@ if ($script:Language.PreferenceError) { Write-Log $script:Language.PreferenceErr
 
 $instance = Lock-SingleInstance
 if (-not $instance) {
-    Write-Host (Format-Text $script:Text 'AppAlreadyRunning')
-    Start-Sleep -Seconds 5
+    $previous = Use-Utf8Output
+    try {
+        Write-Host (Format-Text $script:Text 'AppAlreadyRunning')
+        Start-Sleep -Seconds 5
+    }
+    finally { Restore-Output $previous }
     exit 0
 }
 

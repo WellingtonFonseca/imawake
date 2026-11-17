@@ -33,7 +33,12 @@ It runs in a new Windows Terminal window opened by a desktop shortcut.
 - A function that gives a one-element array needs `, (...)`: Windows PowerShell 5.1 unrolls it to a string and `[0]` then gives one character (`Get-AvailableLanguages`).
 - The help row stays narrower than the option rows, so the box never changes width on a pause or on the uninstall question. The `l` key is on the second help row. A test draws every language in every view and compares the box size.
 - Tests never depend on the PC language: pass the culture name as a parameter, and write `en` to `language.txt` in the fake `LOCALAPPDATA` of a child process.
-- `[Console]::Error` and `Write-Host` outside the app screen use the OEM code page. Portuguese accents exist in code page 850; a language with other letters needs UTF-8 output there.
+- `[Console]::Error` and `Write-Host` outside the app screen use the OEM code page (850). It has no Cyrillic or Chinese. The command, `Show-Fatal`, the already-running message and `Stop-WithMessage` call `Use-Utf8Output` and `Restore-Output` (`ImAwake.Screen.psm1`). The console code page is shared with the parent shell, so the code restores it in `finally`. With both streams redirected `Use-Utf8Output` does nothing and gives `$null`.
+- Spanish and French texts use only letters of code page 850: no curly apostrophe, no `oe` ligature.
+- `Select-PluralKey` knows two forms (one, many). Russian has three: its `UninstallFailedOne` and `UninstallFailedMany` hold the same text, built so the noun does not change.
+- Chinese characters take two cells. `Get-DisplayWidth` counts the East Asian wide ranges (`$script:WideRanges`); any width code and any test measures with it, never with `.Length`. The help row of each language must stay narrower than its option rows, in cells.
+- Not supported: Arabic and Urdu (Windows Terminal has no right-to-left text), Hindi and Bengali (no monospace font; combining marks have no width in `Get-DisplayWidth`). A new language of these needs a visual check in Windows Terminal first.
+- `zh-TW` and `zh-HK` use `zh-CN` by the two-letter code.
 - The saved language is only a preference: a locked or unreadable `language.txt` (the app writes it while the command reads it) never stops a host. `Get-LanguageSetup` returns the reason in `PreferenceError`; the host logs it.
 - `uninstall.ps1` reads the language tables before any file goes. The language files are runtime files (kept after a failed step, like the modules); the `lang` folder is removed before `bin`.
 - Windows Terminal resolves a bare `powershell.exe` through PATH; the shortcut uses the full path.

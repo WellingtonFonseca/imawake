@@ -67,6 +67,14 @@ Describe 'Resolve-Language' {
     It 'ignores the case of the saved name' {
         Resolve-Language 'PT-br' 'en-US' $available | Should Be 'pt-BR'
     }
+    It 'gives a regional Windows language the language file with the same two-letter code' {
+        $all = @('en', 'es', 'fr', 'pt-BR', 'ru', 'zh-CN')
+        Resolve-Language $null 'es-MX' $all | Should Be 'es'
+        Resolve-Language $null 'fr-CA' $all | Should Be 'fr'
+        Resolve-Language $null 'ru-RU' $all | Should Be 'ru'
+        Resolve-Language $null 'zh-TW' $all | Should Be 'zh-CN'
+        Resolve-Language $null 'de-DE' $all | Should Be 'en'
+    }
 }
 
 Describe 'Get-NextLanguage' {

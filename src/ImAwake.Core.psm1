@@ -32,6 +32,13 @@ $script:Glyph = @{
 # Code points inside the BMP that a terminal draws two cells wide.
 $script:WideCodePoints = @(0x2615)
 
+# The East Asian wide ranges (first, last): Hangul Jamo, CJK and kana, Hangul syllables,
+# CJK compatibility, full-width forms. A terminal draws them two cells wide.
+$script:WideRanges = @(
+    @(0x1100, 0x115F), @(0x2E80, 0xA4CF), @(0xAC00, 0xD7A3), @(0xF900, 0xFAFF),
+    @(0xFE30, 0xFE4F), @(0xFF00, 0xFF60), @(0xFFE0, 0xFFE6)
+)
+
 function New-AwakeState {
     [pscustomobject]@{
         Running       = $false
@@ -273,10 +280,23 @@ function Get-DisplayWidth([string]$Text) {
             $i++
             continue
         }
-        if ($script:WideCodePoints -contains [int]$Text[$i]) { $width += 2; continue }
-        $width += 1
+        $width += Get-CharWidth ([int]$Text[$i])
     }
     $width
+}
+
+# Pads by cells, not by characters: a Chinese character takes two cells.
+function Format-Column([string]$Text, [int]$Width) {
+    $Text + (' ' * [math]::Max(0, $Width - (Get-DisplayWidth $Text)))
+}
+
+# The cells of one BMP character: 2 for a wide one, else 1.
+function Get-CharWidth([int]$Code) {
+    if ($script:WideCodePoints -contains $Code) { return 2 }
+    foreach ($range in $script:WideRanges) {
+        if ($Code -ge $range[0] -and $Code -le $range[1]) { return 2 }
+    }
+    1
 }
 
 # Everything the frame needs, already turned into text. Text is the language table: the
@@ -303,4 +323,4 @@ function Get-ViewModel($State, [long]$NowMs, [bool]$Fancy, $Text) {
 
 Export-ModuleMember -Function New-AwakeState, Get-ActiveMs, Start-AwakeClock, Stop-AwakeClock,
     Get-PowerFlags, Get-KeyAction, Get-NextState, Invoke-Transition, Test-KeyPressDue, Invoke-KeyPressTick, Format-Elapsed, Get-WindowTitle,
-    Get-HumorLine, Get-SpinnerFrame, Get-DisplayWidth, Get-ViewModel, Get-Glyph
+    Get-HumorLine, Get-SpinnerFrame, Get-DisplayWidth, Format-Column, Get-ViewModel, Get-Glyph

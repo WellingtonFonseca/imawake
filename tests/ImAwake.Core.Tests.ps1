@@ -284,6 +284,31 @@ Describe 'Get-DisplayWidth' {
     It 'counts the coffee glyph as two cells' { Get-DisplayWidth "$coffee x" | Should Be 4 }
     It 'counts an emoji outside the BMP as two cells' { Get-DisplayWidth "$sleeping" | Should Be 2 }
     It 'counts box drawing as one cell' { Get-DisplayWidth ([char]0x2500).ToString() | Should Be 1 }
+    It 'counts a Chinese character as two cells' { Get-DisplayWidth ([char]0x4E2D).ToString() | Should Be 2 }
+    It 'counts a Chinese text as two cells per character, a space as one' {
+        Get-DisplayWidth (([char]0x4E2D).ToString() + ([char]0x6587) + ' a') | Should Be 6
+    }
+    It 'counts a full-width form and a CJK punctuation mark as two cells' {
+        Get-DisplayWidth ([char]0xFF1A).ToString() | Should Be 2
+        Get-DisplayWidth ([char]0x3002).ToString() | Should Be 2
+    }
+    It 'counts a Hangul syllable as two cells' { Get-DisplayWidth ([char]0xAC00).ToString() | Should Be 2 }
+    It 'counts the characters just outside each wide range as one cell' {
+        foreach ($code in 0x10FF, 0x2E7F, 0xA4D0, 0xABFF, 0xD7A4, 0xF8FF, 0xFB00, 0xFE2F, 0xFE50, 0xFF61, 0xFFE7) {
+            Get-DisplayWidth ([char]$code).ToString() | Should Be 1
+        }
+    }
+    It 'counts the first and the last character of each wide range as two cells' {
+        foreach ($code in 0x1100, 0x115F, 0x2E80, 0xA4CF, 0xAC00, 0xD7A3, 0xF900, 0xFAFF, 0xFE30, 0xFE4F, 0xFF00, 0xFF60, 0xFFE0, 0xFFE6) {
+            Get-DisplayWidth ([char]$code).ToString() | Should Be 2
+        }
+    }
+}
+
+Describe 'Format-Column' {
+    It 'pads a text with spaces up to the width' { Format-Column 'ab' 5 | Should Be 'ab   ' }
+    It 'counts a Chinese character as two cells' { Format-Column ([char]0x7528).ToString() 5 | Should Be (([char]0x7528).ToString() + '   ') }
+    It 'never cuts a text that is wider than the column' { Format-Column 'abcdef' 3 | Should Be 'abcdef' }
 }
 
 Describe 'Get-ViewModel' {

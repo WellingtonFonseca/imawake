@@ -121,7 +121,7 @@ Describe 'Get-FrameLines for uninstall' {
         $sizes = $views | ForEach-Object {
             $lines = @(Get-PlainLines (Get-FrameLines $_ 120 30))
             $box = @($lines | Where-Object { $_.Trim() })
-            '{0}x{1}' -f $box.Count, ($box | ForEach-Object { $_.Trim().Length } | Measure-Object -Maximum).Maximum
+            '{0}x{1}' -f $box.Count, ($box | ForEach-Object { Get-DisplayWidth $_.Trim() } | Measure-Object -Maximum).Maximum
         }
         @($sizes | Select-Object -Unique).Count | Should Be 1
     }
@@ -186,7 +186,7 @@ Describe 'Get-UninstallFrameLines' {
     }
     It 'keeps every line inside the window' {
         $lines = @(Get-PlainLines (Get-UninstallFrameLines (New-UninstallView -Done 12 -Finished $true -Failed @('a')) 60 30))
-        foreach ($line in $lines) { ($line.Length -lt 60) | Should Be $true }
+        foreach ($line in $lines) { ((Get-DisplayWidth $line) -lt 60) | Should Be $true }
     }
 }
 
@@ -236,7 +236,7 @@ Describe 'Every screen in every language file' {
             $view.Text = $table
             $text = (Get-PlainLines (Get-FrameLines $view 100 24)) -join "`n"
             $text | Should Not Match '\{'
-            $text | Should Match 'ImAwake\?'
+            $text | Should Match 'ImAwake\s?[?\uFF1F]'
             $text | Should Match ' y '
             $text | Should Match ' n '
         }
@@ -256,14 +256,14 @@ Describe 'Every screen in every language file' {
             $sizes = $views | ForEach-Object {
                 $_.Text = $table
                 $box = @((Get-PlainLines (Get-FrameLines $_ 140 30)) | Where-Object { $_.Trim() })
-                '{0}x{1}' -f $box.Count, ($box | ForEach-Object { $_.Trim().Length } | Measure-Object -Maximum).Maximum
+                '{0}x{1}' -f $box.Count, ($box | ForEach-Object { Get-DisplayWidth $_.Trim() } | Measure-Object -Maximum).Maximum
             }
             @($sizes | Select-Object -Unique).Count | Should Be 1
         }
         It "$language keeps every line inside a 21-column window" {
             $view = New-View -CanUninstall $true
             $view.Text = $table
-            foreach ($line in @(Get-PlainLines (Get-FrameLines $view 21 24))) { ($line.Length -lt 21) | Should Be $true }
+            foreach ($line in @(Get-PlainLines (Get-FrameLines $view 21 24))) { ((Get-DisplayWidth $line) -lt 21) | Should Be $true }
         }
     }
 }

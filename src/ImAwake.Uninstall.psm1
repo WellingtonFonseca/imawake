@@ -12,7 +12,7 @@ function Get-AppFiles {
         'ImAwake.ps1', 'ImAwake.Core.psm1', 'ImAwake.Frame.psm1', 'ImAwake.Power.psm1',
         'ImAwake.Screen.psm1', 'ImAwake.Setup.psm1', 'ImAwake.Uninstall.psm1',
         'ImAwake.UserPath.psm1', 'ImAwake.Launch.psm1', 'ImAwake.Text.psm1', 'ImAwake.Language.psm1', 'ImAwake.Cli.ps1',
-        'uninstall.ps1', 'bin\imawake.cmd', 'lang\en.psd1', 'lang\pt-BR.psd1'
+        'uninstall.ps1', 'bin\imawake.cmd', 'lang\en.psd1', 'lang\es.psd1', 'lang\fr.psd1', 'lang\pt-BR.psd1', 'lang\ru.psd1', 'lang\zh-CN.psd1'
     )
 }
 
