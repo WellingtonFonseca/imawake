@@ -5,6 +5,8 @@
 
 Set-StrictMode -Version Latest
 
+Import-Module (Join-Path $PSScriptRoot 'ImAwake.Text.psm1')
+
 $script:HumorIntervalMs = 180000
 $script:SecondsOnlyMs = 60000
 $script:SpinnerStepMs = 200
@@ -16,13 +18,6 @@ $script:KeyPressErrorPrefix = 'F15 keypress failed: '
 $script:EsContinuous = [uint32]2147483648
 $script:EsSystemRequired = [uint32]1
 $script:EsDisplayRequired = [uint32]2
-
-$script:HumorLines = @(
-    "I'm awake! I'm awake!",
-    'Just resting my eyes...',
-    'I was listening, I swear.',
-    'Yes, I agree with the last point.'
-)
 
 function Get-Glyph([int]$CodePoint) {
     [char]::ConvertFromUtf32($CodePoint)
@@ -46,6 +41,9 @@ function New-AwakeState {
         KeyPress      = $false
         Mode          = 'run'
         CanUninstall  = $false
+        # The shell sets the start language and the list the language key cycles through.
+        Language      = ''
+        Languages     = @()
         LastKeyMs     = $null
         Error         = $null
     }
@@ -121,6 +119,7 @@ function Get-RunKeyAction([ConsoleKeyInfo]$Key) {
         ([ConsoleKey]::Spacebar) { return 'toggle-pause' }
         ([ConsoleKey]::D)        { return 'toggle-display' }
         ([ConsoleKey]::F)        { return 'toggle-keypress' }
+        ([ConsoleKey]::L)        { return 'cycle-language' }
         ([ConsoleKey]::Q)        { return 'quit' }
         ([ConsoleKey]::Escape)   { return 'quit' }
     }
@@ -153,6 +152,11 @@ function Get-NextState($State, [string]$Action, [long]$NowMs) {
             $next.KeyPress = -not $State.KeyPress
             # A null time makes the first press due at once, as feedback for the user.
             $next.LastKeyMs = $null
+            return $next
+        }
+        'cycle-language' {
+            $next = Copy-AwakeState $State
+            $next.Language = Get-NextLanguage $State.Language $State.Languages
             return $next
         }
         'quit' { return Stop-AwakeClock $State $NowMs }
@@ -232,17 +236,19 @@ function Format-Elapsed([long]$Ms, [ValidateSet('screen', 'title')][string]$Styl
     $script:HourFormat[$Style] -f $h, $m
 }
 
-function Get-WindowTitle($State, [long]$NowMs) {
+# The glyph stays first in code: it is not part of the translated words.
+function Get-WindowTitle($State, [long]$NowMs, $Text) {
     if (-not $State.Running) {
-        return '{0} ImAwake (paused)' -f $script:Glyph.Sleeping
+        return '{0} {1}' -f $script:Glyph.Sleeping, (Format-Text $Text 'TitlePaused')
     }
-    "{0} I'm awake! {1} {2}" -f $script:Glyph.Coffee, $script:Glyph.EnDash, (Format-Elapsed (Get-ActiveMs $State $NowMs) 'title')
+    '{0} {1} {2} {3}' -f $script:Glyph.Coffee, (Format-Text $Text 'TitleAwake'), $script:Glyph.EnDash, (Format-Elapsed (Get-ActiveMs $State $NowMs) 'title')
 }
 
 # The line follows the active time, not chance, so it never jumps between redraws.
-function Get-HumorLine([long]$ActiveMs) {
-    $index = [long][math]::Floor([math]::Max($ActiveMs, 0) / $script:HumorIntervalMs) % $script:HumorLines.Count
-    $script:HumorLines[$index]
+# Lines comes from the language table, so each language can have its own number of lines.
+function Get-HumorLine([long]$ActiveMs, [string[]]$Lines) {
+    $index = [long][math]::Floor([math]::Max($ActiveMs, 0) / $script:HumorIntervalMs) % $Lines.Count
+    $Lines[$index]
 }
 
 function Get-SpinnerFrames([bool]$Fancy) {
@@ -273,8 +279,9 @@ function Get-DisplayWidth([string]$Text) {
     $width
 }
 
-# Everything the frame needs, already turned into text.
-function Get-ViewModel($State, [long]$NowMs, [bool]$Fancy) {
+# Everything the frame needs, already turned into text. Text is the language table: the
+# frame reads its words from View.Text, so the frame never reads a file.
+function Get-ViewModel($State, [long]$NowMs, [bool]$Fancy, $Text) {
     $activeMs = Get-ActiveMs $State $NowMs
     [pscustomobject]@{
         Running = [bool]$State.Running
@@ -283,10 +290,14 @@ function Get-ViewModel($State, [long]$NowMs, [bool]$Fancy) {
         Mode = $State.Mode
         CanUninstall = [bool]$State.CanUninstall
         Elapsed = Format-Elapsed $activeMs
-        Humor   = Get-HumorLine $activeMs
+        Humor   = Get-HumorLine $activeMs $Text.HumorLines
         Spinner = Get-SpinnerFrame $activeMs $Fancy
         Error   = $State.Error
         Fancy   = $Fancy
+        Text    = $Text
+        # The place of the language in the list (from 1) and the list size, for the [n/x] in the help.
+        LanguageIndex = [array]::IndexOf(@($State.Languages), $State.Language) + 1
+        LanguageCount = @($State.Languages).Count
     }
 }
 

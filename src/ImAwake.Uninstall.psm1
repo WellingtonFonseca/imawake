@@ -4,13 +4,15 @@
 
 Set-StrictMode -Version Latest
 
+Import-Module (Join-Path $PSScriptRoot 'ImAwake.Text.psm1')
+
 # Every file the installer copies to the app folder (paths relative to it).
 function Get-AppFiles {
     @(
         'ImAwake.ps1', 'ImAwake.Core.psm1', 'ImAwake.Frame.psm1', 'ImAwake.Power.psm1',
         'ImAwake.Screen.psm1', 'ImAwake.Setup.psm1', 'ImAwake.Uninstall.psm1',
-        'ImAwake.UserPath.psm1', 'ImAwake.Launch.psm1', 'ImAwake.Cli.ps1',
-        'uninstall.ps1', 'bin\imawake.cmd'
+        'ImAwake.UserPath.psm1', 'ImAwake.Launch.psm1', 'ImAwake.Text.psm1', 'ImAwake.Language.psm1', 'ImAwake.Cli.ps1',
+        'uninstall.ps1', 'bin\imawake.cmd', 'lang\en.psd1', 'lang\pt-BR.psd1'
     )
 }
 
@@ -20,10 +22,10 @@ function Get-ShortcutPath {
     Join-Path ([Environment]::GetFolderPath('Desktop')) 'ImAwake.lnk'
 }
 
-# The files uninstall.ps1 imports. They go after the other files and stay after a failed
-# step, so the script can run again.
-function Get-ModuleFiles {
-    @(Get-AppFiles | Where-Object { $_ -like 'ImAwake.*.psm1' })
+# The files uninstall.ps1 reads while it runs: the modules it imports and the language files.
+# They go after the other files and stay after a failed step, so the script can run again.
+function Get-RuntimeFiles {
+    @(Get-AppFiles | Where-Object { $_ -like 'ImAwake.*.psm1' -or $_ -like 'lang\*.psd1' })
 }
 
 # The marker the installer writes last. Only an installed copy has it, so a repository
@@ -40,22 +42,24 @@ function New-UninstallItem([string]$Id, [string]$Label, [string]$Kind, [string]$
 
 # The steps in the order uninstall.ps1 runs them. The modules, the marker and the uninstaller
 # go last and stay after a failed step (KeepOnFailure), so a second run can finish.
-function Get-UninstallItems {
+# The labels come from the language table: the screen and the log show them.
+function Get-UninstallItems($Text) {
     $items = @(
-        New-UninstallItem 'path' 'Remove bin from the user PATH' 'path' ''
-        New-UninstallItem 'shortcut' 'Remove the desktop shortcut' 'shortcut' ''
+        New-UninstallItem 'path' (Format-Text $Text 'ItemPath') 'path' ''
+        New-UninstallItem 'shortcut' (Format-Text $Text 'ItemShortcut') 'shortcut' ''
     )
-    $modules = Get-ModuleFiles
-    foreach ($file in (Get-AppFiles | Where-Object { $_ -ne 'uninstall.ps1' -and $_ -notin $modules })) {
-        $items += New-UninstallItem 'file' "Remove $file" 'file' $file
+    $runtime = Get-RuntimeFiles
+    foreach ($file in (Get-AppFiles | Where-Object { $_ -ne 'uninstall.ps1' -and $_ -notin $runtime })) {
+        $items += New-UninstallItem 'file' (Format-Text $Text 'ItemFile' @($file)) 'file' $file
     }
-    foreach ($file in $modules) {
-        $items += New-UninstallItem 'module' "Remove $file" 'file' $file $true
+    foreach ($file in $runtime) {
+        $items += New-UninstallItem 'module' (Format-Text $Text 'ItemFile' @($file)) 'file' $file $true
     }
-    $items += New-UninstallItem 'marker' 'Remove the install marker' 'file' (Get-MarkerName) $true
-    $items += New-UninstallItem 'self' 'Remove uninstall.ps1' 'file' 'uninstall.ps1' $true
-    $items += New-UninstallItem 'bin-folder' 'Remove the bin folder' 'folder' 'bin'
-    $items += New-UninstallItem 'app-folder' 'Remove the app folder' 'folder' ''
+    $items += New-UninstallItem 'marker' (Format-Text $Text 'ItemMarker') 'file' (Get-MarkerName) $true
+    $items += New-UninstallItem 'self' (Format-Text $Text 'ItemFile' @('uninstall.ps1')) 'file' 'uninstall.ps1' $true
+    $items += New-UninstallItem 'lang-folder' (Format-Text $Text 'ItemLangFolder') 'folder' 'lang'
+    $items += New-UninstallItem 'bin-folder' (Format-Text $Text 'ItemBinFolder') 'folder' 'bin'
+    $items += New-UninstallItem 'app-folder' (Format-Text $Text 'ItemAppFolder') 'folder' ''
     $items
 }
 
@@ -90,28 +94,28 @@ function Get-UninstallResult($Item, $Results, [string]$AppDir, [hashtable]$Effec
     }
 }
 
-function Get-UninstallView($Items, $Results, [bool]$Finished, [bool]$Fancy) {
+function Get-UninstallView($Items, $Results, [bool]$Finished, [bool]$Fancy, $Text) {
     $done = @($Results).Count
     $current = if ($done -lt $Items.Count) { $Items[$done].Label } else { '' }
     [pscustomobject]@{
-        Fancy = $Fancy; Done = $done; Total = $Items.Count; Current = $current; Finished = $Finished
+        Fancy = $Fancy; Done = $done; Total = $Items.Count; Current = $current; Finished = $Finished; Text = $Text
         Failed = @($Results | Where-Object { $_.Status -eq 'failed' } | ForEach-Object { $_.Label })
     }
 }
 
 # Runs every step with the effects of the host (real registry and console, or fakes in a test),
 # then shows the final view, reports the results and waits for a key. Gives the final view.
-function Invoke-Uninstall([object[]]$Items, [string]$AppDir, [hashtable]$Effects, [bool]$Fancy) {
+function Invoke-Uninstall([object[]]$Items, [string]$AppDir, [hashtable]$Effects, [bool]$Fancy, $Text) {
     $results = @()
     foreach ($item in $Items) {
-        & $Effects.Show (Get-UninstallView $Items $results $false $Fancy)
+        & $Effects.Show (Get-UninstallView $Items $results $false $Fancy $Text)
         $results += Get-UninstallResult $item $results $AppDir $Effects
     }
-    $view = Get-UninstallView $Items $results $true $Fancy
+    $view = Get-UninstallView $Items $results $true $Fancy $Text
     & $Effects.Show $view
     & $Effects.Report $results
     & $Effects.WaitKey
     $view
 }
 
-Export-ModuleMember -Function Get-ShortcutPath, Get-AppFiles, Get-ModuleFiles, Get-MarkerName, Test-InstalledCopy, Get-UninstallItems, Test-KeepUninstaller, Invoke-Uninstall, Get-UninstallResult, Get-UninstallView
+Export-ModuleMember -Function Get-ShortcutPath, Get-AppFiles, Get-RuntimeFiles, Get-MarkerName, Test-InstalledCopy, Get-UninstallItems, Test-KeepUninstaller, Invoke-Uninstall, Get-UninstallResult, Get-UninstallView

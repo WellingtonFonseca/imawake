@@ -4,6 +4,7 @@
 Set-StrictMode -Version Latest
 
 Import-Module (Join-Path $PSScriptRoot 'ImAwake.Core.psm1')
+Import-Module (Join-Path $PSScriptRoot 'ImAwake.Text.psm1')
 
 $script:Esc = [char]27
 $script:Reset = "$script:Esc[0m"
@@ -41,41 +42,51 @@ function Get-BoxChars([bool]$Fancy) {
 function Get-StatusSegments($View) {
     if (-not $View.Running) {
         $zzz = if ($View.Fancy) { Get-Glyph 0x1F4A4 } else { 'zz' }
-        return @(New-Segment "$zzz Paused - your PC can sleep" 'Paused')
+        return @(New-Segment (Format-Text $View.Text 'StatusPaused' @($zzz)) 'Paused')
     }
     @(
         (New-Segment $View.Spinner 'Awake'),
-        (New-Segment " Awake for $($View.Elapsed)" 'Status')
+        (New-Segment (' ' + (Format-Text $View.Text 'StatusAwake' @($View.Elapsed))) 'Status')
     )
 }
 
-function Get-HelpSegments([bool]$Running) {
-    $pause = if ($Running) { 'pause' } else { 'resume' }
+# The key letters are code, not text: only the labels come from the language table.
+function Get-HelpSegments([bool]$Running, $Text) {
+    $pause = Format-Text $Text $(if ($Running) { 'HelpPause' } else { 'HelpResume' })
     $sep = '  {0}  ' -f (Get-Glyph 0x00B7)
     @(
         (New-Segment 'space' 'Key'), (New-Segment " $pause" 'Muted'), (New-Segment $sep 'Muted'),
-        (New-Segment 'd' 'Key'), (New-Segment ' screen' 'Muted'), (New-Segment $sep 'Muted'),
-        (New-Segment 'f' 'Key'), (New-Segment ' F15' 'Muted'), (New-Segment $sep 'Muted'),
-        (New-Segment 'q' 'Key'), (New-Segment ' quit' 'Muted')
+        (New-Segment 'd' 'Key'), (New-Segment (' ' + (Format-Text $Text 'HelpScreen')) 'Muted'), (New-Segment $sep 'Muted'),
+        (New-Segment 'f' 'Key'), (New-Segment (' ' + (Format-Text $Text 'HelpF15')) 'Muted'), (New-Segment $sep 'Muted'),
+        (New-Segment 'q' 'Key'), (New-Segment (' ' + (Format-Text $Text 'HelpQuit')) 'Muted')
     )
 }
 
-# An empty row when the copy is not installed, so the box height never changes.
-function Get-UninstallHintSegments([bool]$CanUninstall) {
-    if (-not $CanUninstall) { return @() }
-    @((New-Segment 'ctrl+u' 'Key'), (New-Segment ' uninstall' 'Muted'))
+# The second help row: the language key, then the uninstall key of an installed copy.
+# It is not part of the first row, because the box must keep its width: a help row wider than
+# the option rows would make the box jump on a pause or on the uninstall question.
+function Get-MoreHelpSegments($View) {
+    $Text = $View.Text
+    $position = ' [{0}/{1}]' -f $View.LanguageIndex, $View.LanguageCount
+    $row = @(
+        (New-Segment 'l' 'Key'),
+        (New-Segment (' ' + (Format-Text $Text 'HelpLanguage') + $position) 'Muted')
+    )
+    if (-not $View.CanUninstall) { return $row }
+    $sep = '  {0}  ' -f (Get-Glyph 0x00B7)
+    $row + @((New-Segment $sep 'Muted'), (New-Segment 'ctrl+u' 'Key'), (New-Segment (' ' + (Format-Text $Text 'HelpUninstall')) 'Muted'))
 }
 
 # The two last rows of the box while the uninstall question shows.
-function Get-ConfirmRows {
+function Get-ConfirmRows($Text) {
     $sep = '  {0}  ' -f (Get-Glyph 0x00B7)
     @(
         , @(
-            (New-Segment 'Uninstall ImAwake?  ' 'Error'),
-            (New-Segment 'y' 'Key'), (New-Segment ' yes' 'Muted'), (New-Segment $sep 'Muted'),
-            (New-Segment 'n' 'Key'), (New-Segment ' no' 'Muted')
+            (New-Segment ((Format-Text $Text 'ConfirmQuestion') + '  ') 'Error'),
+            (New-Segment 'y' 'Key'), (New-Segment (' ' + (Format-Text $Text 'ConfirmYes')) 'Muted'), (New-Segment $sep 'Muted'),
+            (New-Segment 'n' 'Key'), (New-Segment (' ' + (Format-Text $Text 'ConfirmNo')) 'Muted')
         )
-        , @(New-Segment 'Removes the app, the shortcut and the PATH entry' 'Muted')
+        , @(New-Segment (Format-Text $Text 'ConfirmNote') 'Muted')
     )
 }
 
@@ -92,14 +103,14 @@ function Get-BodyRows($View) {
         $errorRow = @(New-Segment "! $($View.Error)" 'Error')
     }
     @(
-        , @(New-Segment "$coffee ImAwake" 'Header')
+        , @(New-Segment "$coffee $(Get-AppName)" 'Header')
         , @()
         , (Get-StatusSegments $View)
         , @(New-Segment ('"{0}"' -f $View.Humor) 'Humor')
         , @()
-        , @(New-Segment "$(Get-Checkbox $true) Keep the PC from sleeping")
-        , @(New-Segment "$(Get-Checkbox $View.Display) Keep the screen on")
-        , @(New-Segment "$(Get-Checkbox $View.KeyPress) Press F15 every minute (keeps chat apps active)")
+        , @(New-Segment "$(Get-Checkbox $true) $(Format-Text $View.Text 'OptionSleep')")
+        , @(New-Segment "$(Get-Checkbox $View.Display) $(Format-Text $View.Text 'OptionScreen')")
+        , @(New-Segment "$(Get-Checkbox $View.KeyPress) $(Format-Text $View.Text 'OptionKeyPress')")
         , $errorRow
     )
 }
@@ -107,10 +118,10 @@ function Get-BodyRows($View) {
 # The two last rows: the uninstall question, or the help row and the uninstall hint.
 # Both give two rows, so the box height never changes.
 function Get-FooterRows($View) {
-    if ($View.Mode -eq 'confirm-uninstall') { return Get-ConfirmRows }
+    if ($View.Mode -eq 'confirm-uninstall') { return Get-ConfirmRows $View.Text }
     @(
-        , (Get-HelpSegments $View.Running)
-        , @(Get-UninstallHintSegments $View.CanUninstall)
+        , (Get-HelpSegments $View.Running $View.Text)
+        , @(Get-MoreHelpSegments $View)
     )
 }
 
@@ -212,31 +223,31 @@ function Format-ProgressBar([int]$Done, [int]$Total, [int]$Width, [bool]$Fancy) 
     '[{0}{1}] {2}/{3}' -f ($full * $fill), ($empty * ($Width - $fill)), $doneClamped, [math]::Max($Total, 0)
 }
 
-# The rows of the uninstall screen: View has Fancy, Done, Total, Current, Finished and Failed.
+# The rows of the uninstall screen: View has Fancy, Done, Total, Current, Finished, Failed and Text.
 function Get-UninstallRows($View) {
     $coffee = if ($View.Fancy) { Get-Glyph 0x2615 } else { 'c[_]' }
     $rows = @(
-        , @(New-Segment "$coffee ImAwake uninstall" 'Header')
+        , @(New-Segment "$coffee $(Format-Text $View.Text 'UninstallHeader')" 'Header')
         , @()
         , @(New-Segment (Format-ProgressBar $View.Done $View.Total 30 $View.Fancy) 'Status')
     )
     if (-not $View.Finished) {
-        $rows += , @(New-Segment "Removing: $($View.Current)" 'Muted')
+        $rows += , @(New-Segment (Format-Text $View.Text 'UninstallRemoving' @($View.Current)) 'Muted')
         return $rows
     }
     $failed = @($View.Failed)
     if ($failed.Count -eq 0) {
-        $rows += , @(New-Segment 'Done. ImAwake is removed.' 'Awake')
+        $rows += , @(New-Segment (Format-Text $View.Text 'UninstallDone') 'Awake')
     }
     else {
-        $rows += , @(New-Segment "Failed: $($failed.Count) item(s)" 'Error')
+        $rows += , @(New-Segment (Format-Text $View.Text (Select-PluralKey $failed.Count 'UninstallFailedOne' 'UninstallFailedMany') @($failed.Count)) 'Error')
         foreach ($label in ($failed | Select-Object -First 3)) {
             $rows += , @(New-Segment "- $label" 'Error')
         }
     }
     $rows += , @()
-    $rows += , @(New-Segment 'Kept: %LOCALAPPDATA%\ImAwake (log, PATH backup)' 'Muted')
-    $rows += , @(New-Segment 'Press any key to close' 'Muted')
+    $rows += , @(New-Segment (Format-Text $View.Text 'UninstallKept') 'Muted')
+    $rows += , @(New-Segment (Format-Text $View.Text 'PressAnyKeyRow') 'Muted')
     $rows
 }
 

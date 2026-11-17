@@ -2,6 +2,8 @@ Set-StrictMode -Version Latest
 Import-Module (Join-Path $PSScriptRoot '..\src\ImAwake.Uninstall.psm1') -Force
 Import-Module (Join-Path $PSScriptRoot '..\src\ImAwake.Setup.psm1') -Force
 Import-Module (Join-Path $PSScriptRoot '..\src\ImAwake.UserPath.psm1') -Force
+Import-Module (Join-Path $PSScriptRoot '..\src\ImAwake.Language.psm1') -Force
+$en = Import-PowerShellDataFile -Path (Join-Path $PSScriptRoot '..\src\lang\en.psd1')
 
 $srcDir = Join-Path $PSScriptRoot '..\src'
 $powershell = Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'
@@ -35,22 +37,49 @@ Describe 'Get-ShortcutPath' {
 
 Describe 'Get-UninstallItems' {
     It 'does the PATH and the shortcut first, then the files' {
-        $items = @(Get-UninstallItems)
+        $items = @(Get-UninstallItems $en)
         $items[0].Id | Should Be 'path'
         $items[1].Id | Should Be 'shortcut'
         $items[2].Id | Should Be 'file'
     }
-    It 'ends with the modules, the marker, the uninstaller and the folders, in that order' {
-        $ids = @(Get-UninstallItems | ForEach-Object { $_.Id })
-        $tail = $ids[-4..-1] -join ','
-        $tail | Should BeExactly 'marker,self,bin-folder,app-folder'
-        $ids[-5] | Should Be 'module'
+    It 'ends with the runtime files, the marker, the uninstaller and the folders, in that order' {
+        $ids = @(Get-UninstallItems $en | ForEach-Object { $_.Id })
+        $tail = $ids[-5..-1] -join ','
+        $tail | Should BeExactly 'marker,self,lang-folder,bin-folder,app-folder'
+        $ids[-6] | Should Be 'module'
         $firstModule = [array]::IndexOf($ids, 'module')
         ($ids[0..($firstModule - 1)] | Where-Object { $_ -eq 'module' }) | Should BeNullOrEmpty
-        @($ids | Where-Object { $_ -eq 'module' }).Count | Should Be @(Get-ModuleFiles).Count
+        @($ids | Where-Object { $_ -eq 'module' }).Count | Should Be @(Get-RuntimeFiles).Count
+    }
+    It 'counts the language files as runtime files, so they stay after a failed step' {
+        (@(Get-RuntimeFiles) -contains 'lang\en.psd1') | Should Be $true
+        (@(Get-RuntimeFiles) -contains 'ImAwake.Core.psm1') | Should Be $true
+        (@(Get-RuntimeFiles) -contains 'uninstall.ps1') | Should Be $false
+    }
+    It 'removes the lang folder as a folder step' {
+        $step = @(Get-UninstallItems $en | Where-Object { $_.Id -eq 'lang-folder' })
+        $step.Count | Should Be 1
+        $step[0].Kind | Should Be 'folder'
+        $step[0].Name | Should Be 'lang'
+    }
+    It 'takes every label from the text table' {
+        $other = @{}
+        foreach ($key in $en.Keys) { $other[$key] = $en[$key] }
+        $other['ItemPath'] = 'Tirar bin do PATH'
+        $other['ItemFile'] = 'Remover {0}'
+        $items = @(Get-UninstallItems $other)
+        $items[0].Label | Should Be 'Tirar bin do PATH'
+        ($items | Where-Object { $_.Id -eq 'self' }).Label | Should Be 'Remover uninstall.ps1'
+        ($items | Where-Object { $_.Name -eq 'ImAwake.Core.psm1' }).Label | Should Be 'Remover ImAwake.Core.psm1'
+    }
+    It 'gives every item a label with no leftover placeholder' {
+        foreach ($item in (Get-UninstallItems $en)) {
+            [string]::IsNullOrWhiteSpace($item.Label) | Should Be $false
+            $item.Label | Should Not Match '\{'
+        }
     }
     It 'has one file or module step for each app file except the uninstaller' {
-        $files = @(Get-UninstallItems | Where-Object { $_.Id -in 'file', 'module' } | ForEach-Object { $_.Name })
+        $files = @(Get-UninstallItems $en | Where-Object { $_.Id -in 'file', 'module' } | ForEach-Object { $_.Name })
         $files.Count | Should Be (@(Get-AppFiles).Count - 1)
         ($files -contains 'uninstall.ps1') | Should Be $false
     }
@@ -58,11 +87,11 @@ Describe 'Get-UninstallItems' {
 
 Describe 'Get-UninstallItems data' {
     It 'keeps on failure exactly the modules, the marker and the uninstaller' {
-        $keep = @(Get-UninstallItems | Where-Object { $_.KeepOnFailure } | ForEach-Object { $_.Id } | Sort-Object -Unique)
+        $keep = @(Get-UninstallItems $en | Where-Object { $_.KeepOnFailure } | ForEach-Object { $_.Id } | Sort-Object -Unique)
         $keep -join ',' | Should BeExactly 'marker,module,self'
     }
     It 'gives every item a kind' {
-        foreach ($item in (Get-UninstallItems)) { ($item.Kind -in 'path', 'shortcut', 'file', 'folder') | Should Be $true }
+        foreach ($item in (Get-UninstallItems $en)) { ($item.Kind -in 'path', 'shortcut', 'file', 'folder') | Should Be $true }
     }
 }
 
@@ -103,12 +132,16 @@ function New-FakeInstall([bool]$Marker, [string[]]$Skip = @()) {
 
 # LOCALAPPDATA points to a temp folder for the child, so the test never writes to the real
 # ImAwake log or PATH backup.
-function Invoke-Uninstaller([string]$Dir) {
+function Invoke-Uninstaller([string]$Dir, [byte[]]$LanguageFileBytes = $null) {
     $old = $ErrorActionPreference
     $realLocalAppData = $env:LOCALAPPDATA
     $ErrorActionPreference = 'Continue'
     $env:LOCALAPPDATA = Join-Path $Dir '..\imawake-test-localappdata'
     try {
+        # The saved language wins over the Windows language, so the output never depends on this PC.
+        $languageFile = Join-Path $env:LOCALAPPDATA 'ImAwake\language.txt'
+        Save-LanguagePreference $languageFile 'en'
+        if ($null -ne $LanguageFileBytes) { [IO.File]::WriteAllBytes($languageFile, $LanguageFileBytes) }
         $output = & $powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $Dir 'uninstall.ps1') -SkipUserState -Silent 2>&1 | Out-String
         @{ Output = $output; ExitCode = $LASTEXITCODE }
     }
@@ -124,6 +157,26 @@ Describe 'uninstall.ps1' {
         $dir = New-FakeInstall $true
         try {
             $run = Invoke-Uninstaller $dir
+            $run.ExitCode | Should Be 0
+            Test-Path $dir | Should Be $false
+        }
+        finally { Remove-Item -Recurse -Force $dir -ErrorAction SilentlyContinue }
+    }
+    It 'stops with a clear message and removes nothing when the language files are missing' {
+        $dir = New-FakeInstall $true @('lang\en.psd1', 'lang\pt-BR.psd1')
+        try {
+            $run = Invoke-Uninstaller $dir
+            $run.ExitCode | Should Be 1
+            $run.Output | Should Match 'could not read its language files'
+            Test-Path (Join-Path $dir 'ImAwake.ps1') | Should Be $true
+            Test-Path (Join-Path $dir (Get-MarkerName)) | Should Be $true
+        }
+        finally { Remove-Item -Recurse -Force $dir -ErrorAction SilentlyContinue }
+    }
+    It 'ignores an empty language file and still uninstalls' {
+        $dir = New-FakeInstall $true
+        try {
+            $run = Invoke-Uninstaller $dir -LanguageFileBytes ([byte[]]@())
             $run.ExitCode | Should Be 0
             Test-Path $dir | Should Be $false
         }
@@ -235,8 +288,8 @@ Describe 'Invoke-Uninstall with fake effects' {
     $appDir = 'C:\Fake\App'
     It 'runs every step in order and shows the final view last' {
         $calls = New-Object Collections.ArrayList
-        $items = @(Get-UninstallItems)
-        $view = Invoke-Uninstall $items $appDir (New-FakeEffects $calls) $false
+        $items = @(Get-UninstallItems $en)
+        $view = Invoke-Uninstall $items $appDir (New-FakeEffects $calls) $false $en
         $view.Done | Should Be $items.Count
         $view.Total | Should Be $items.Count
         $view.Finished | Should Be $true
@@ -250,7 +303,7 @@ Describe 'Invoke-Uninstall with fake effects' {
     }
     It 'passes full paths to the file and folder effects' {
         $calls = New-Object Collections.ArrayList
-        Invoke-Uninstall @(Get-UninstallItems) $appDir (New-FakeEffects $calls) $false | Out-Null
+        Invoke-Uninstall @(Get-UninstallItems $en) $appDir (New-FakeEffects $calls) $false $en | Out-Null
         ($calls -contains 'file:C:\Fake\App\ImAwake.Core.psm1') | Should Be $true
         ($calls -contains 'file:C:\Fake\App\uninstall.ps1') | Should Be $true
         ($calls -contains 'folder:C:\Fake\App\bin') | Should Be $true
@@ -259,7 +312,7 @@ Describe 'Invoke-Uninstall with fake effects' {
     It 'fails one step, logs it, keeps the uninstaller and its modules, and still tries the folders' {
         $calls = New-Object Collections.ArrayList
         $fail = { param($Path) if ($Path -like '*ImAwake.Cli.ps1') { throw 'locked' }; 'ok' }
-        $view = Invoke-Uninstall @(Get-UninstallItems) $appDir (New-FakeEffects $calls @{ RemoveFile = $fail }) $false
+        $view = Invoke-Uninstall @(Get-UninstallItems $en) $appDir (New-FakeEffects $calls @{ RemoveFile = $fail }) $false $en
         @($view.Failed).Count | Should Be 1
         $view.Failed[0] | Should Be 'Remove ImAwake.Cli.ps1'
         (@($calls | Where-Object { $_ -like 'log:*locked*' }).Count) | Should Be 1
@@ -271,12 +324,29 @@ Describe 'Invoke-Uninstall with fake effects' {
     }
     It 'gives each result a single string status' {
         $calls = New-Object Collections.ArrayList
-        $items = @(Get-UninstallItems)
+        $items = @(Get-UninstallItems $en)
         $results = @()
         foreach ($item in $items) {
             $result = Get-UninstallResult $item $results $appDir (New-FakeEffects $calls)
             ($result.Status -is [string]) | Should Be $true
             $results += $result
+        }
+    }
+}
+
+Describe 'ImAwake.Cli.ps1 with no language files' {
+    It 'says so and exits with 3, the failure code' {
+        $dir = New-FakeInstall $true @('lang\en.psd1', 'lang\pt-BR.psd1')
+        $old = $ErrorActionPreference
+        $ErrorActionPreference = 'Continue'
+        try {
+            $output = & $powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $dir 'ImAwake.Cli.ps1') status 2>&1 | Out-String
+            $LASTEXITCODE | Should Be 3
+            $output | Should Match 'could not read the language files'
+        }
+        finally {
+            $ErrorActionPreference = $old
+            Remove-Item -Recurse -Force $dir -ErrorAction SilentlyContinue
         }
     }
 }

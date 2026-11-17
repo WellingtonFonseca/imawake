@@ -1,5 +1,6 @@
 Set-StrictMode -Version Latest
 Import-Module (Join-Path $PSScriptRoot '..\src\ImAwake.Core.psm1') -Force
+$text = Import-PowerShellDataFile -Path (Join-Path $PSScriptRoot '..\src\lang\en.psd1')
 
 function New-Key([ConsoleKey]$Key, [char]$Char = [char]0, [switch]$Ctrl) {
     New-Object ConsoleKeyInfo $Char, $Key, $false, $false, ([bool]$Ctrl)
@@ -213,25 +214,30 @@ Describe 'Format-Elapsed in the title style' {
 
 Describe 'Get-WindowTitle' {
     It 'shows seconds in the first minute' {
-        Get-WindowTitle (New-RunningState 0) 42000 | Should BeExactly "$coffee I'm awake! $dash 42s"
+        Get-WindowTitle (New-RunningState 0) 42000 $text | Should BeExactly "$coffee I'm awake! $dash 42s"
     }
     It 'still shows seconds at 59999 ms' {
-        Get-WindowTitle (New-RunningState 0) 59999 | Should BeExactly "$coffee I'm awake! $dash 59s"
+        Get-WindowTitle (New-RunningState 0) 59999 $text | Should BeExactly "$coffee I'm awake! $dash 59s"
     }
     It 'switches to minutes at 60000 ms' {
-        Get-WindowTitle (New-RunningState 0) 60000 | Should BeExactly "$coffee I'm awake! $dash 1min"
+        Get-WindowTitle (New-RunningState 0) 60000 $text | Should BeExactly "$coffee I'm awake! $dash 1min"
     }
     It 'shows minutes under one hour' {
-        Get-WindowTitle (New-RunningState 0) 420000 | Should BeExactly "$coffee I'm awake! $dash 7min"
+        Get-WindowTitle (New-RunningState 0) 420000 $text | Should BeExactly "$coffee I'm awake! $dash 7min"
     }
     It 'shows hours and minutes' {
-        Get-WindowTitle (New-RunningState 0) 4800000 | Should BeExactly "$coffee I'm awake! $dash 1h20"
+        Get-WindowTitle (New-RunningState 0) 4800000 $text | Should BeExactly "$coffee I'm awake! $dash 1h20"
     }
     It 'pads the minutes' {
-        Get-WindowTitle (New-RunningState 0) 7380000 | Should BeExactly "$coffee I'm awake! $dash 2h03"
+        Get-WindowTitle (New-RunningState 0) 7380000 $text | Should BeExactly "$coffee I'm awake! $dash 2h03"
     }
     It 'says paused when stopped' {
-        Get-WindowTitle (New-AwakeState) 0 | Should BeExactly "$sleeping ImAwake (paused)"
+        Get-WindowTitle (New-AwakeState) 0 $text | Should BeExactly "$sleeping ImAwake (paused)"
+    }
+    It 'takes the words from the text table and keeps the app name' {
+        $other = @{ TitleAwake = 'Acordado!'; TitlePaused = '{app} (pausado)' }
+        Get-WindowTitle (New-RunningState 0) 42000 $other | Should BeExactly "$coffee Acordado! $dash 42s"
+        Get-WindowTitle (New-AwakeState) 0 $other | Should BeExactly "$sleeping ImAwake (pausado)"
     }
 }
 
@@ -246,7 +252,11 @@ Describe 'Get-HumorLine' {
     )
     It 'gives <Line> at <Ms> ms' -TestCases $cases {
         param($Ms, $Line)
-        Get-HumorLine $Ms | Should BeExactly $Line
+        Get-HumorLine $Ms $text.HumorLines | Should BeExactly $Line
+    }
+    It 'picks from the list it gets, so a language can have another number of lines' {
+        Get-HumorLine 180000 @('a', 'b', 'c') | Should BeExactly 'b'
+        Get-HumorLine 540000 @('a', 'b', 'c') | Should BeExactly 'a'
     }
 }
 
@@ -263,8 +273,8 @@ Describe 'Get-SpinnerFrame' {
     }
     It 'freezes while paused, because the active time freezes' {
         $paused = Stop-AwakeClock (New-RunningState 0) 250
-        $a = (Get-ViewModel $paused 1000 $false).Spinner
-        $b = (Get-ViewModel $paused 5000 $false).Spinner
+        $a = (Get-ViewModel $paused 1000 $false $text).Spinner
+        $b = (Get-ViewModel $paused 5000 $false $text).Spinner
         $a | Should Be $b
     }
 }
@@ -280,7 +290,7 @@ Describe 'Get-ViewModel' {
     It 'turns the state into text' {
         $s = New-RunningState 0
         $s.Error = 'boom'
-        $v = Get-ViewModel $s 4800000 $false
+        $v = Get-ViewModel $s 4800000 $false $text
         $v.Running | Should Be $true
         $v.Display | Should Be $true
         $v.Elapsed | Should Be '1h 20min'
@@ -289,9 +299,15 @@ Describe 'Get-ViewModel' {
         $v.Fancy | Should Be $false
         $v.KeyPress | Should Be $false
     }
+    It 'carries the text table and takes the humor line from it' {
+        $other = @{ HumorLines = @('x', 'y') }
+        $v = Get-ViewModel (New-RunningState 0) 180000 $false $other
+        $v.Humor | Should Be 'y'
+        [object]::ReferenceEquals($v.Text, $other) | Should Be $true
+    }
     It 'shows F15 on' {
         $s = Get-NextState (New-RunningState 0) 'toggle-keypress' 0
-        (Get-ViewModel $s 0 $false).KeyPress | Should Be $true
+        (Get-ViewModel $s 0 $false $text).KeyPress | Should Be $true
     }
 }
 
@@ -441,8 +457,95 @@ Describe 'Get-ViewModel for uninstall' {
         $s = New-RunningState 0
         $s.CanUninstall = $true
         $s.Mode = 'confirm-uninstall'
-        $v = Get-ViewModel $s 0 $false
+        $v = Get-ViewModel $s 0 $false $text
         $v.Mode | Should Be 'confirm-uninstall'
         $v.CanUninstall | Should Be $true
+    }
+}
+
+Describe 'The language key' {
+    It 'maps l to cycle-language on the run screen' {
+        Get-KeyAction (New-Key ([ConsoleKey]::L) 'l') 'run' | Should Be 'cycle-language'
+    }
+    It 'ignores l while the uninstall question shows' {
+        Get-KeyAction (New-Key ([ConsoleKey]::L) 'l') 'confirm-uninstall' | Should Be 'none'
+    }
+    It 'ignores ctrl+l' {
+        Get-KeyAction (New-Key ([ConsoleKey]::L) 'l' -Ctrl) 'run' | Should Be 'none'
+    }
+    It 'starts with no language and no language list' {
+        $s = New-AwakeState
+        $s.Language | Should Be ''
+        @($s.Languages).Count | Should Be 0
+    }
+    It 'moves to the next language' {
+        $s = New-RunningState 0
+        $s.Language = 'en'
+        $s.Languages = @('en', 'pt-BR')
+        (Get-NextState $s 'cycle-language' 0).Language | Should Be 'pt-BR'
+    }
+    It 'wraps around to the first language' {
+        $s = New-RunningState 0
+        $s.Language = 'pt-BR'
+        $s.Languages = @('en', 'pt-BR')
+        (Get-NextState $s 'cycle-language' 0).Language | Should Be 'en'
+    }
+    It 'changes nothing else, and keeps the clock running' {
+        $s = New-RunningState 0
+        $s.Language = 'en'
+        $s.Languages = @('en', 'pt-BR')
+        $next = Get-NextState $s 'cycle-language' 5000
+        $next.Running | Should Be $true
+        $next.Display | Should Be $s.Display
+        $next.KeyPress | Should Be $s.KeyPress
+        $next.Mode | Should Be $s.Mode
+        $next.ResumedAtMs | Should Be $s.ResumedAtMs
+    }
+    It 'keeps the same language when only one exists' {
+        $s = New-RunningState 0
+        $s.Language = 'en'
+        $s.Languages = @('en')
+        (Get-NextState $s 'cycle-language' 0).Language | Should Be 'en'
+    }
+    It 'does not touch the power flags through Invoke-Transition' {
+        $s = New-RunningState 0
+        $s.Language = 'en'
+        $s.Languages = @('en', 'pt-BR')
+        $calls = New-Object System.Collections.ArrayList
+        $setPower = { param($Flags) [void]$calls.Add($Flags) }.GetNewClosure()
+        $next = Invoke-Transition $s 'cycle-language' 0 $setPower { param($m) }
+        $next.Language | Should Be 'pt-BR'
+        $calls.Count | Should Be 0
+    }
+}
+
+Describe 'Get-ViewModel language position' {
+    It 'gives the position in the list, counted from 1, and the total' {
+        $s = New-RunningState 0
+        $s.Language = 'es'
+        $s.Languages = @('en', 'es', 'pt-BR')
+        $v = Get-ViewModel $s 0 $false $text
+        $v.LanguageIndex | Should Be 2
+        $v.LanguageCount | Should Be 3
+    }
+    It 'follows the language key' {
+        $s = New-RunningState 0
+        $s.Language = 'pt-BR'
+        $s.Languages = @('en', 'es', 'pt-BR')
+        $next = Get-NextState $s 'cycle-language' 0
+        (Get-ViewModel $next 0 $false $text).LanguageIndex | Should Be 1
+    }
+    It 'gives 0 of 0 when the shell set no language list' {
+        $v = Get-ViewModel (New-RunningState 0) 0 $false $text
+        $v.LanguageIndex | Should Be 0
+        $v.LanguageCount | Should Be 0
+    }
+    It 'counts a list of one language as 1 of 1' {
+        $s = New-RunningState 0
+        $s.Language = 'en'
+        $s.Languages = @('en')
+        $v = Get-ViewModel $s 0 $false $text
+        $v.LanguageIndex | Should Be 1
+        $v.LanguageCount | Should Be 1
     }
 }

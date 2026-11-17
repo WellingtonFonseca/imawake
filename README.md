@@ -2,7 +2,7 @@
 
 **Keep your Windows PC awake — only while a small window is open.**
 
-![Windows 10/11](https://img.shields.io/badge/Windows-10%20%7C%2011-0078D4) ![PowerShell 5.1](https://img.shields.io/badge/PowerShell-5.1-5391FE) ![Tests: 122 Pester](https://img.shields.io/badge/tests-122%20Pester-2EA043) ![License: MIT](https://img.shields.io/badge/license-MIT-yellow)
+![Windows 10/11](https://img.shields.io/badge/Windows-10%20%7C%2011-0078D4) ![PowerShell 5.1](https://img.shields.io/badge/PowerShell-5.1-5391FE) ![Tests: 310 Pester](https://img.shields.io/badge/tests-310%20Pester-2EA043) ![License: MIT](https://img.shields.io/badge/license-MIT-yellow)
 
 ImAwake is a tiny console app for Windows. Open it and your PC will not go to sleep. Close it and everything goes back to normal. No settings to change, no installer to trust, nothing left running in the background.
 
@@ -68,8 +68,15 @@ Inside the window:
 | `space` | Pause / resume |
 | `d` | Keep the screen on (on / off) |
 | `f` | Press F15 every 59 s to stay "Available" in chat apps (on / off) |
+| `l` | Change the language (English / Português); ImAwake remembers your choice |
 | `Ctrl+U` | Uninstall ImAwake (asks first: `y` yes, `n` no) |
 | `q`, `Esc` or `Ctrl+C` | Quit — the PC can sleep again |
+
+## Language
+
+ImAwake starts in the language of Windows: Portuguese (Brazil) or English. Any other Windows language starts in English. Press `l` to change the language; ImAwake saves your choice in `%LOCALAPPDATA%\ImAwake\language.txt` and uses it the next time. The name **ImAwake** and the command `imawake` stay the same in every language.
+
+To add a language, copy `src\lang\en.psd1` to a new file named after the language (for example `es.psd1`) and translate the texts. Keep every key and every `{0}` and `{app}` marker, and save the file as UTF-8 with a BOM. Add the file name to `Get-AppFiles` in `ImAwake.Uninstall.psm1`, so the installer copies it. The tests check all of this.
 
 ## How it works
 
@@ -79,8 +86,11 @@ The code is split so the logic can be tested without Windows:
 
 | Module | Role |
 | --- | --- |
-| `ImAwake.Core.psm1` | State, timer, texts — pure logic, no console and no clock reads |
+| `ImAwake.Core.psm1` | State, timer, window title — pure logic, no console and no clock reads |
 | `ImAwake.Frame.psm1` | Draws the box as text lines — pure, no console |
+| `ImAwake.Text.psm1` | Fills a text, picks the language, picks the plural — pure; the app name is fixed here |
+| `ImAwake.Language.psm1` | Reads `lang\*.psd1` and the saved language choice |
+| `lang\en.psd1`, `lang\pt-BR.psd1` | The texts of each language |
 | `ImAwake.Power.psm1` | The only place that calls Windows (power request, F15 key, single-instance mutex) |
 | `ImAwake.Launch.psm1` | Helpers for the `imawake` command and the uninstall window |
 | `ImAwake.Screen.psm1` | The console screen: alternate screen, frame write, title |
@@ -91,7 +101,7 @@ The code is split so the logic can be tested without Windows:
 
 ## Tests
 
-Over 180 [Pester](https://pester.dev) tests cover the logic, the drawing, the launcher, a real call to the Windows power API and a real F15 keypress.
+Over 300 [Pester](https://pester.dev) tests cover the logic, the drawing, the launcher, a real call to the Windows power API and a real F15 keypress.
 
 ```powershell
 Import-Module Pester -RequiredVersion 3.4.0   # the version built into Windows
@@ -107,7 +117,7 @@ Open ImAwake and press `Ctrl+U`, then `y` to confirm (`n` or `Esc` cancels). A n
 - removes `...\Apps\ImAwake\bin` from your user PATH (the old value goes to `%LOCALAPPDATA%\ImAwake\path-backup.txt`)
 - deletes the desktop shortcut and the app files, then itself and the app folder
 
-The log and the PATH backup in `%LOCALAPPDATA%\ImAwake` stay. A file you added to the app folder stays too, with its folder. If a step fails, `uninstall.ps1` stays in the app folder; run it again from another folder (not from inside the app folder). Only a copy made by the installer can uninstall; a repository checkout never does.
+The log, the PATH backup and the saved language in `%LOCALAPPDATA%\ImAwake` stay. A file you added to the app folder stays too, with its folder. If a step fails, `uninstall.ps1` stays in the app folder; run it again from another folder (not from inside the app folder). Only a copy made by the installer can uninstall; a repository checkout never does.
 
 To install again, for example on another PC, run the install command from the Install section: it replaces the old copy.
 

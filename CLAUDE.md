@@ -10,18 +10,32 @@ It runs in a new Windows Terminal window opened by a desktop shortcut.
 - Full suite: `scripts/test.sh` (runs Pester in Windows from WSL; includes a real SetThreadExecutionState call).
 - Coverage: `scripts/test.sh --coverage` (Pester `-CodeCoverage` on `src/*.psm1`).
 - One test file: run `scripts/test.sh` after editing; Pester 3.4 has no single-test filter here.
-- Lint: none. Mutation tool: none; break code by hand (global rule 6).
+- Lint: none.
+- Mutation tool: `scripts/mutate.sh [jobs]`. It reads `scripts/mutants.psd1`, runs each mutant alone in its own copy of the code (a temp folder, deleted at the end), several at once (default 4), and prints only the mutants that survive plus one summary line. Each mutant runs only the test files it lists. A new logic branch gets a new mutant in `mutants.psd1`; a surviving mutant gets a test. Code the tool cannot break (CSS/HTML-like strings, glyphs): break it by hand (global rule 6).
 - The Windows app copy is the one the user runs: after each change run `scripts/install.sh`, then the user closes the window and opens it again.
 - Install on Windows: `scripts/install.sh` (copies `src/` to `%USERPROFILE%\Apps\ImAwake`, makes the desktop shortcut, adds `...\ImAwake\bin` to the user PATH; the old PATH goes to `%LOCALAPPDATA%\ImAwake\path-backup.txt`).
 - Terminal command: `imawake` (run in this terminal), `imawake window` (new window), `imawake status`. Both start forms say so and stop when the app already runs. Exit codes: 0 ok/running, 1 not running, 2 wrong arguments, 3 failure.
 
 ## Rules
 - `src/*.psm1` and `src/*.ps1` stay ASCII. PowerShell 5.1 reads a file without a BOM as ANSI; build glyphs with `[char]::ConvertFromUtf32`.
-- `ImAwake.Core.psm1` and `ImAwake.Frame.psm1` are pure: no console, no clock, no Windows calls. Time comes in as `NowMs`.
+- `ImAwake.Core.psm1`, `ImAwake.Frame.psm1` and `ImAwake.Text.psm1` are pure: no console, no clock, no file, no Windows calls. Time comes in as `NowMs`. The language table comes in as data (`View.Text`).
+- Every user-visible text is a key in `src/lang/<language>.psd1`. The code reads it with `Format-Text $Text 'Key' @(args)`. A new text goes into every language file; a test compares the keys, the placeholders and the value types.
+- The app name never goes in a language file: write `{app}` (and `{cmd}` for `imawake`). A test fails when a language file holds the name. Code gets the name from `Get-AppName` and `Get-CommandName`.
+- The `src/lang/*.psd1` files are UTF-8 with BOM and use composed accents (NFC). They are the only non-ASCII files in `src/`. A test checks the BOM and that every `.ps1` and `.psm1` stays ASCII.
+- A new language file goes into `Get-AppFiles` (`ImAwake.Uninstall.psm1`). Only `ImAwake.Language.psm1` reads the files and the Windows culture.
 - Every Windows call (power, SendInput) comes from the main loop thread. Never use jobs, runspaces or event actions for it.
 - Pester 3.4 syntax: `Should Be`, no dash; no `BeforeAll`.
 
 ## Traps
+- `Start-Process -PassThru` in Windows PowerShell 5.1 gives an empty `ExitCode` unless the code reads `$process.Handle` first (`mutate.ps1`).
+- A `.psd1` is restricted language: no `[char]`, no variables. The glyphs and the key letters stay in code; only labels are text.
+- The language choice order is: `language.txt` in `%LOCALAPPDATA%\ImAwake`, then `Get-UICulture` (the Windows display language; Windows Terminal and the code page do not change it), then English. `pt-PT` gets `pt-BR` by the two-letter code.
+- A function that gives a one-element array needs `, (...)`: Windows PowerShell 5.1 unrolls it to a string and `[0]` then gives one character (`Get-AvailableLanguages`).
+- The help row stays narrower than the option rows, so the box never changes width on a pause or on the uninstall question. The `l` key is on the second help row. A test draws every language in every view and compares the box size.
+- Tests never depend on the PC language: pass the culture name as a parameter, and write `en` to `language.txt` in the fake `LOCALAPPDATA` of a child process.
+- `[Console]::Error` and `Write-Host` outside the app screen use the OEM code page. Portuguese accents exist in code page 850; a language with other letters needs UTF-8 output there.
+- The saved language is only a preference: a locked or unreadable `language.txt` (the app writes it while the command reads it) never stops a host. `Get-LanguageSetup` returns the reason in `PreferenceError`; the host logs it.
+- `uninstall.ps1` reads the language tables before any file goes. The language files are runtime files (kept after a failed step, like the modules); the `lang` folder is removed before `bin`.
 - Windows Terminal resolves a bare `powershell.exe` through PATH; the shortcut uses the full path.
 - `WScript.Shell.AppActivate` matches the title start. The title starts with the coffee glyph while running and with the sleeping glyph while paused.
 - `powercfg /requests` needs admin; read the state with `CallNtPowerInformation(16)` instead.
