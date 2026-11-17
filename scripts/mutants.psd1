@@ -100,5 +100,17 @@
         @{ Label = 'Read-LanguagePreference: a folder is read as a file'; File = 'src/ImAwake.Language.psm1'; Tests = @('ImAwake.Language.Tests.ps1')
            Old = 'if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) { return $null }'
            New = 'if (-not (Test-Path -LiteralPath $Path)) { return $null }' }
+        @{ Label = 'Get-CharWidth: wide range ignored'; File = 'src/ImAwake.Core.psm1'; Tests = @('ImAwake.Core.Tests.ps1', 'ImAwake.Frame.Tests.ps1')
+           Old = 'if ($Code -ge $range[0] -and $Code -le $range[1]) { return 2 }'
+           New = 'if ($Code -ge $range[0] -and $Code -le $range[1]) { return 1 }' }
+        @{ Label = 'Get-CharWidth: wide range starts one too late'; File = 'src/ImAwake.Core.psm1'; Tests = @('ImAwake.Core.Tests.ps1')
+           Old = 'if ($Code -ge $range[0] -and'
+           New = 'if ($Code -gt $range[0] -and' }
+        @{ Label = 'Get-CharWidth: wide range ends one too early'; File = 'src/ImAwake.Core.psm1'; Tests = @('ImAwake.Core.Tests.ps1')
+           Old = '$Code -le $range[1]) { return 2 }'
+           New = '$Code -lt $range[1]) { return 2 }' }
+        @{ Label = 'Format-Column: pads by characters, not cells'; File = 'src/ImAwake.Core.psm1'; Tests = @('ImAwake.Core.Tests.ps1')
+           Old = '$Width - (Get-DisplayWidth $Text)'
+           New = '$Width - $Text.Length' }
     )
 }

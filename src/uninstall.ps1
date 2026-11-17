@@ -86,11 +86,15 @@ $effects = @{
 
 # A message the user must read: the window may close at once when it ends.
 function Stop-WithMessage([string]$Message, [string]$Prompt) {
-    $Message
-    if (-not $Silent) {
-        $Prompt
-        [Console]::ReadKey($true) | Out-Null
+    $previous = Use-Utf8Output
+    try {
+        $Message
+        if (-not $Silent) {
+            $Prompt
+            [Console]::ReadKey($true) | Out-Null
+        }
     }
+    finally { Restore-Output $previous }
     exit 1
 }
 

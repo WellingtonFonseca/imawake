@@ -8,9 +8,11 @@
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
+Import-Module (Join-Path $PSScriptRoot 'ImAwake.Core.psm1') -Force
 Import-Module (Join-Path $PSScriptRoot 'ImAwake.Launch.psm1') -Force
 Import-Module (Join-Path $PSScriptRoot 'ImAwake.Text.psm1') -Force
 Import-Module (Join-Path $PSScriptRoot 'ImAwake.Language.psm1') -Force
+Import-Module (Join-Path $PSScriptRoot 'ImAwake.Screen.psm1') -Force
 
 $script:CliArgs = @($args)
 $script:AppScript = Join-Path $PSScriptRoot 'ImAwake.ps1'
@@ -23,6 +25,7 @@ catch {
     exit 3
 }
 $script:Text = $script:Language.Tables[$script:Language.Language]
+$script:PreviousEncoding = Use-Utf8Output
 if ($script:Language.PreferenceError) { [Console]::Error.WriteLine("$(Get-CommandName): $($script:Language.PreferenceError)") }
 
 # Gives the start time of the running app, or $null. A process with higher rights has no
@@ -38,10 +41,9 @@ function Get-AppStartTime {
 # The command words stay as they are; the words around them come from the language table.
 function Show-Usage {
     $cmd = Get-CommandName
-    $line = '{0,-7}{1,-17}{2}'
-    Write-Host ($line -f (Format-Text $script:Text 'CliUsage'), $cmd, (Format-Text $script:Text 'CliUsageRun'))
-    Write-Host ($line -f '', "$cmd window", (Format-Text $script:Text 'CliUsageWindow'))
-    Write-Host ($line -f '', "$cmd status", (Format-Text $script:Text 'CliUsageStatus'))
+    Write-Host ((Format-Column (Format-Text $script:Text 'CliUsage') 7) + (Format-Column $cmd 17) + (Format-Text $script:Text 'CliUsageRun'))
+    Write-Host ((Format-Column '' 7) + (Format-Column "$cmd window" 17) + (Format-Text $script:Text 'CliUsageWindow'))
+    Write-Host ((Format-Column '' 7) + (Format-Column "$cmd status" 17) + (Format-Text $script:Text 'CliUsageStatus'))
 }
 
 function Start-App {
@@ -102,5 +104,8 @@ try {
 catch {
     [Console]::Error.WriteLine((Format-Text $script:Text 'CliFailed' @("$_")))
     $code = 3
+}
+finally {
+    Restore-Output $script:PreviousEncoding
 }
 exit $code
