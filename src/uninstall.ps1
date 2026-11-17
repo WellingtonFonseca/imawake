@@ -1,6 +1,6 @@
 # Removes ImAwake: the bin folder from the user PATH, the desktop shortcut and the app files,
 # then this script and the folders. Press ctrl+u in ImAwake to start it, or run it by hand
-# from another folder. The log and the PATH backup in %LOCALAPPDATA%\ImAwake stay.
+# from another folder. The log, the PATH backup and the saved language in %LOCALAPPDATA%\ImAwake stay.
 # -SkipUserState and -Silent are for tests: no PATH, no shortcut, no mutex; no screen, no wait.
 param(
     [switch]$SkipUserState,
@@ -15,7 +15,7 @@ Set-Location $env:TEMP
 [Environment]::CurrentDirectory = $env:TEMP
 
 $appDir = $PSScriptRoot
-foreach ($name in 'Frame', 'Power', 'Screen', 'Setup', 'Uninstall', 'UserPath', 'Launch') {
+foreach ($name in 'Frame', 'Power', 'Screen', 'Setup', 'Uninstall', 'UserPath', 'Launch', 'Text', 'Language') {
     Import-Module (Join-Path $appDir "ImAwake.$name.psm1") -Force
 }
 
@@ -85,17 +85,28 @@ $effects = @{
 }
 
 # A message the user must read: the window may close at once when it ends.
-function Stop-WithMessage([string]$Message) {
+function Stop-WithMessage([string]$Message, [string]$Prompt) {
     $Message
     if (-not $Silent) {
-        'Press any key to close.'
+        $Prompt
         [Console]::ReadKey($true) | Out-Null
     }
     exit 1
 }
 
+# The tables are read once, before any file goes: the language files are removed near the end.
+# With no tables there is no text, so this one message is plain English, and nothing is removed.
+try { $language = Get-LanguageSetup $appDir }
+catch {
+    Write-Log "language files failed: $_"
+    Stop-WithMessage "$(Get-AppName) could not read its language files: $_" 'Press any key to close.'
+}
+$text = $language.Tables[$language.Language]
+if ($language.PreferenceError) { Write-Log $language.PreferenceError }
+$pressKey = Format-Text $text 'PressAnyKeyMsg'
+
 if (-not (Test-InstalledCopy $appDir)) {
-    Stop-WithMessage 'Not an installed copy of ImAwake. Nothing removed.'
+    Stop-WithMessage (Format-Text $text 'UninstallNotInstalled') $pressKey
 }
 
 # The app holds the mutex while it runs, so waiting for it also waits for the app to exit.
@@ -103,7 +114,7 @@ $mutex = $null
 if (-not $SkipUserState) {
     $mutex = Lock-SingleInstance 10000
     if (-not $mutex) {
-        Stop-WithMessage 'ImAwake still runs. Close it and try again.'
+        Stop-WithMessage (Format-Text $text 'UninstallStillRuns') $pressKey
     }
 }
 
@@ -116,7 +127,7 @@ try {
         Initialize-Native
         Enter-Screen
     }
-    $view = Invoke-Uninstall @(Get-UninstallItems) $appDir $effects ([bool]$env:WT_SESSION)
+    $view = Invoke-Uninstall @(Get-UninstallItems $text) $appDir $effects ([bool]$env:WT_SESSION) $text
 }
 finally {
     if ($saved) { Exit-Screen $saved }

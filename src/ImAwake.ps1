@@ -16,6 +16,8 @@ Import-Module (Join-Path $PSScriptRoot 'ImAwake.Power.psm1') -Force
 Import-Module (Join-Path $PSScriptRoot 'ImAwake.Screen.psm1') -Force
 Import-Module (Join-Path $PSScriptRoot 'ImAwake.Uninstall.psm1') -Force
 Import-Module (Join-Path $PSScriptRoot 'ImAwake.Launch.psm1') -Force
+Import-Module (Join-Path $PSScriptRoot 'ImAwake.Text.psm1') -Force
+Import-Module (Join-Path $PSScriptRoot 'ImAwake.Language.psm1') -Force
 
 $script:LoopDelayMs = 200
 $script:UninstallRequested = $false
@@ -46,11 +48,19 @@ function Step-KeyPress($State, [long]$NowMs) {
     Invoke-KeyPressTick $State $NowMs $script:PressKey $script:Log
 }
 
+# The words follow State.Language, so the language key changes the screen on the next draw.
 function Write-Screen($State, [long]$NowMs, [bool]$Fancy) {
     $width = [Console]::WindowWidth
     $height = [Console]::WindowHeight
-    Set-Title (Get-WindowTitle $State $NowMs)
-    Write-Lines (Get-FrameLines (Get-ViewModel $State $NowMs $Fancy) $width $height) $width $height
+    $text = $script:Language.Tables[$State.Language]
+    Set-Title (Get-WindowTitle $State $NowMs $text)
+    Write-Lines (Get-FrameLines (Get-ViewModel $State $NowMs $Fancy $text) $width $height) $width $height
+}
+
+# A failed save is logged with its path and never stops the app: the choice still holds until exit.
+function Save-Language([string]$Code) {
+    try { Save-LanguagePreference $script:Language.Preference $Code }
+    catch { Write-Log "language $Code not saved to $($script:Language.Preference): $_" }
 }
 
 # Drains every pending key; gives the new state and whether to quit or uninstall.
@@ -60,6 +70,7 @@ function Read-Keys($State, [long]$NowMs) {
         $action = Get-KeyAction ([Console]::ReadKey($true)) $State.Mode
         if ($action -eq 'none') { continue }
         $State = Step-State $State $action $NowMs
+        if ($action -eq 'cycle-language') { Save-Language $State.Language }
         if ($action -eq 'quit') { return @{ State = $State; Quit = $true; Uninstall = $false } }
         if ($action -eq 'uninstall') { return @{ State = $State; Quit = $true; Uninstall = $true } }
     }
@@ -72,6 +83,8 @@ function Start-Loop([bool]$Fancy) {
     $clock = [Diagnostics.Stopwatch]::StartNew()
     $initial = New-AwakeState
     $initial.CanUninstall = Test-InstalledCopy $PSScriptRoot
+    $initial.Language = $script:Language.Language
+    $initial.Languages = $script:Language.Available
     $state = Step-State $initial 'toggle-pause' 0
     while ($true) {
         $now = $clock.ElapsedMilliseconds
@@ -105,15 +118,32 @@ function Start-Uninstall {
 # A fatal error stays on screen until a key press; otherwise the window closes and hides it.
 function Show-Fatal($ErrorRecord) {
     Write-Log "fatal: $ErrorRecord`n$($ErrorRecord.ScriptStackTrace)"
-    [Console]::Error.WriteLine("ImAwake stopped: $ErrorRecord")
-    [Console]::Error.WriteLine("Log: $script:LogPath")
+    [Console]::Error.WriteLine((Format-Text $script:Text 'AppStopped' @($ErrorRecord)))
+    [Console]::Error.WriteLine((Format-Text $script:Text 'AppLogPath' @($script:LogPath)))
+    [Console]::Error.WriteLine((Format-Text $script:Text 'PressAnyKeyMsg'))
+    [Console]::ReadKey($true) | Out-Null
+}
+
+# The language files are missing or broken, so there is no text table: this one message is
+# plain English. It stays on screen until a key press, because the window would close at once.
+function Show-LanguageFailure($ErrorRecord) {
+    Write-Log "language files failed: $ErrorRecord"
+    [Console]::Error.WriteLine("$(Get-AppName) could not read its language files: $ErrorRecord")
     [Console]::Error.WriteLine('Press any key to close.')
     [Console]::ReadKey($true) | Out-Null
 }
 
+try { $script:Language = Get-LanguageSetup $PSScriptRoot }
+catch {
+    Show-LanguageFailure $_
+    exit 1
+}
+$script:Text = $script:Language.Tables[$script:Language.Language]
+if ($script:Language.PreferenceError) { Write-Log $script:Language.PreferenceError }
+
 $instance = Lock-SingleInstance
 if (-not $instance) {
-    Write-Host 'ImAwake is already running elsewhere. Closing in 5 seconds.'
+    Write-Host (Format-Text $script:Text 'AppAlreadyRunning')
     Start-Sleep -Seconds 5
     exit 0
 }

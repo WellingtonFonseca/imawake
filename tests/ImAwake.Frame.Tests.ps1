@@ -1,6 +1,7 @@
 Set-StrictMode -Version Latest
 Import-Module (Join-Path $PSScriptRoot '..\src\ImAwake.Core.psm1') -Force
 Import-Module (Join-Path $PSScriptRoot '..\src\ImAwake.Frame.psm1') -Force
+$en = Import-PowerShellDataFile -Path (Join-Path $PSScriptRoot '..\src\lang\en.psd1')
 
 $ansi = [regex]"$([char]27)\[[0-9;]*m"
 
@@ -11,7 +12,7 @@ function Get-PlainLines($Lines) {
 function New-View([bool]$Running = $true, [bool]$Fancy = $false, $ErrorText = $null, [bool]$Display = $true, [bool]$KeyPress = $false, [string]$Mode = 'run', [bool]$CanUninstall = $false) {
     [pscustomobject]@{
         Running = $Running; Display = $Display; KeyPress = $KeyPress; Elapsed = '1h 20min'
-        Humor = 'Just resting my eyes...'; Spinner = '|'; Error = $ErrorText; Fancy = $Fancy; Mode = $Mode; CanUninstall = $CanUninstall
+        Humor = 'Just resting my eyes...'; Spinner = '|'; Error = $ErrorText; Fancy = $Fancy; Mode = $Mode; CanUninstall = $CanUninstall; Text = $en; LanguageIndex = 1; LanguageCount = 2
     }
 }
 
@@ -145,7 +146,7 @@ Describe 'Format-ProgressBar' {
 
 Describe 'Get-UninstallFrameLines' {
     function New-UninstallView([int]$Done = 3, [int]$Total = 12, [bool]$Finished = $false, $Failed = @(), [bool]$Fancy = $false) {
-        [pscustomobject]@{ Fancy = $Fancy; Done = $Done; Total = $Total; Current = 'Remove ImAwake.Core.psm1'; Finished = $Finished; Failed = $Failed }
+        [pscustomobject]@{ Fancy = $Fancy; Done = $Done; Total = $Total; Current = 'Remove ImAwake.Core.psm1'; Finished = $Finished; Failed = $Failed; Text = $en }
     }
     function Get-UText($View, [int]$Width = 100) { (Get-PlainLines (Get-UninstallFrameLines $View $Width 30)) -join "`n" }
     It 'shows the title, the bar and the current step' {
@@ -169,8 +170,138 @@ Describe 'Get-UninstallFrameLines' {
         $text | Should Not Match '- d'
         $text | Should Not Match 'Done\.'
     }
+    It 'says item for one failed step and items for more' {
+        (Get-UText (New-UninstallView -Done 12 -Finished $true -Failed @('a'))) | Should Match 'Failed: 1 item\s'
+        (Get-UText (New-UninstallView -Done 12 -Finished $true -Failed @('a', 'b'))) | Should Match 'Failed: 2 items\s'
+    }
+    It 'draws the words of the text table it gets' {
+        $other = @{}
+        foreach ($key in $en.Keys) { $other[$key] = $en[$key] }
+        $other['UninstallDone'] = 'Pronto. {app} foi removido.'
+        $view = New-UninstallView -Done 12 -Finished $true
+        $view.Text = $other
+        $text = Get-UText $view
+        $text | Should Match 'Pronto\. ImAwake foi removido\.'
+        $text | Should Match 'ImAwake uninstall'
+    }
     It 'keeps every line inside the window' {
         $lines = @(Get-PlainLines (Get-UninstallFrameLines (New-UninstallView -Done 12 -Finished $true -Failed @('a')) 60 30))
         foreach ($line in $lines) { ($line.Length -lt 60) | Should Be $true }
+    }
+}
+
+Describe 'Get-FrameLines with another text table' {
+    function New-OtherText {
+        $other = @{}
+        foreach ($key in $en.Keys) { $other[$key] = $en[$key] }
+        $other['OptionScreen'] = 'Manter a tela ligada'
+        $other['HelpQuit'] = 'sair'
+        $other['ConfirmQuestion'] = 'Desinstalar {app}?'
+        $other
+    }
+    It 'draws the words of the table, and the app name stays' {
+        $view = New-View
+        $view.Text = New-OtherText
+        $text = (Get-PlainLines (Get-FrameLines $view 80 24)) -join "`n"
+        $text | Should Match 'Manter a tela ligada'
+        $text | Should Match 'q sair'
+        $text | Should Match ' ImAwake'
+    }
+    It 'draws the uninstall question from the table' {
+        $view = New-View -Mode 'confirm-uninstall' -CanUninstall $true
+        $view.Text = New-OtherText
+        $text = (Get-PlainLines (Get-FrameLines $view 80 24)) -join "`n"
+        $text | Should Match 'Desinstalar ImAwake\?'
+    }
+}
+
+Import-Module (Join-Path $PSScriptRoot '..\src\ImAwake.Language.psm1') -Force
+$tables = Import-TextTables (Join-Path $PSScriptRoot '..\src\lang')
+
+Describe 'Every screen in every language file' {
+    foreach ($language in $tables.Keys) {
+        $table = $tables[$language]
+
+        It "$language draws the running and the paused screen with no leftover placeholder" {
+            foreach ($running in $true, $false) {
+                $view = New-View -Running $running -CanUninstall $true
+                $view.Text = $table
+                $text = (Get-PlainLines (Get-FrameLines $view 100 24)) -join "`n"
+                $text | Should Not Match '\{'
+                $text | Should Match 'ImAwake'
+            }
+        }
+        It "$language draws the uninstall question with the y and n keys" {
+            $view = New-View -Mode 'confirm-uninstall' -CanUninstall $true
+            $view.Text = $table
+            $text = (Get-PlainLines (Get-FrameLines $view 100 24)) -join "`n"
+            $text | Should Not Match '\{'
+            $text | Should Match 'ImAwake\?'
+            $text | Should Match ' y '
+            $text | Should Match ' n '
+        }
+        It "$language draws the uninstall screen, running and finished, with no leftover placeholder" {
+            foreach ($finished in $false, $true) {
+                $view = [pscustomobject]@{ Fancy = $false; Done = 5; Total = 12; Current = 'Remove x'; Finished = $finished; Failed = @('a', 'b'); Text = $table }
+                $text = (Get-PlainLines (Get-UninstallFrameLines $view 100 30)) -join "`n"
+                $text | Should Not Match '\{'
+                $text | Should Match 'ImAwake'
+            }
+        }
+        It "$language keeps the box size on a pause, on an installed copy and on the uninstall question" {
+            $views = @(
+                (New-View), (New-View -Running $false), (New-View -CanUninstall $true),
+                (New-View -CanUninstall $true -Mode 'confirm-uninstall'), (New-View -KeyPress $true -CanUninstall $true)
+            )
+            $sizes = $views | ForEach-Object {
+                $_.Text = $table
+                $box = @((Get-PlainLines (Get-FrameLines $_ 140 30)) | Where-Object { $_.Trim() })
+                '{0}x{1}' -f $box.Count, ($box | ForEach-Object { $_.Trim().Length } | Measure-Object -Maximum).Maximum
+            }
+            @($sizes | Select-Object -Unique).Count | Should Be 1
+        }
+        It "$language keeps every line inside a 21-column window" {
+            $view = New-View -CanUninstall $true
+            $view.Text = $table
+            foreach ($line in @(Get-PlainLines (Get-FrameLines $view 21 24))) { ($line.Length -lt 21) | Should Be $true }
+        }
+    }
+}
+
+Describe 'The language key in the help' {
+    It 'shows l with its label in English, also on a copy that cannot uninstall' {
+        $text = (Get-PlainLines (Get-FrameLines (New-View) 100 24)) -join "`n"
+        $text | Should Match 'l language'
+        $text | Should Not Match 'ctrl\+u'
+    }
+    It 'shows the label of the table it gets' {
+        $other = @{}
+        foreach ($key in $en.Keys) { $other[$key] = $en[$key] }
+        $other['HelpLanguage'] = 'idioma'
+        $view = New-View
+        $view.Text = $other
+        (Get-PlainLines (Get-FrameLines $view 100 24)) -join "`n" | Should Match 'l idioma'
+    }
+    It 'puts the language key before ctrl+u on the second help row' {
+        $text = (Get-PlainLines (Get-FrameLines (New-View -CanUninstall $true) 100 24)) -join "`n"
+        $text | Should Match 'l language \[\d+/\d+\]\s+\S\s+ctrl\+u uninstall'
+    }
+    It 'shows the position of the language in the list, as [n/x]' {
+        $text = (Get-PlainLines (Get-FrameLines (New-View) 100 24)) -join "`n"
+        $text | Should Match 'l language \[1/2\]'
+    }
+    It 'shows the position and the total the view gives' {
+        $view = New-View
+        $view.LanguageIndex = 10
+        $view.LanguageCount = 12
+        (Get-PlainLines (Get-FrameLines $view 100 24)) -join "`n" | Should Match 'l language \[10/12\]'
+    }
+    It 'keeps the position before ctrl+u' {
+        $text = (Get-PlainLines (Get-FrameLines (New-View -CanUninstall $true) 100 24)) -join "`n"
+        $text | Should Match 'l language \[1/2\]\s+\S\s+ctrl\+u uninstall'
+    }
+    It 'keeps the language key off the first help row' {
+        $text = (Get-PlainLines (Get-FrameLines (New-View) 100 24)) -join "`n"
+        $text | Should Match 'F15\s+\S\s+q quit'
     }
 }
