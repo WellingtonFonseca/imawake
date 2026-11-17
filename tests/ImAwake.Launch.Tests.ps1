@@ -73,3 +73,10 @@ Describe 'Resolve-CliAction' {
         Resolve-CliAction $null | Should Be 'here'
     }
 }
+
+Describe 'Get-UninstallArguments' {
+    It 'opens a new window that starts in the work folder and runs the script' {
+        Get-UninstallArguments 'C:\ps\powershell.exe' 'C:\App Dir\uninstall.ps1' 'C:\Temp' |
+            Should BeExactly '-w new -d "C:\Temp" "C:\ps\powershell.exe" -NoProfile -ExecutionPolicy Bypass -File "C:\App Dir\uninstall.ps1"'
+    }
+}

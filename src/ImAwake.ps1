@@ -13,13 +13,13 @@ $ErrorActionPreference = 'Stop'
 Import-Module (Join-Path $PSScriptRoot 'ImAwake.Core.psm1') -Force
 Import-Module (Join-Path $PSScriptRoot 'ImAwake.Frame.psm1') -Force
 Import-Module (Join-Path $PSScriptRoot 'ImAwake.Power.psm1') -Force
+Import-Module (Join-Path $PSScriptRoot 'ImAwake.Screen.psm1') -Force
+Import-Module (Join-Path $PSScriptRoot 'ImAwake.Uninstall.psm1') -Force
+Import-Module (Join-Path $PSScriptRoot 'ImAwake.Launch.psm1') -Force
 
-$script:Esc = [char]27
 $script:LoopDelayMs = 200
+$script:UninstallRequested = $false
 $script:LogPath = Join-Path $env:LOCALAPPDATA 'ImAwake\imawake.log'
-$script:LastFrame = ''
-$script:LastSize = ''
-$script:LastTitle = ''
 
 function Write-Log([string]$Message) {
     try {
@@ -30,7 +30,7 @@ function Write-Log([string]$Message) {
     catch {
         [Console]::Error.WriteLine("ImAwake could not write the log $($script:LogPath): $_")
         # The message lands inside the frame; a full redraw removes it.
-        $script:LastFrame = ''
+        Reset-Frame
     }
 }
 
@@ -49,63 +49,57 @@ function Step-KeyPress($State, [long]$NowMs) {
 function Write-Screen($State, [long]$NowMs, [bool]$Fancy) {
     $width = [Console]::WindowWidth
     $height = [Console]::WindowHeight
-    $size = "${width}x$height"
-    if ($size -ne $script:LastSize) {
-        [Console]::Out.Write("$script:Esc[2J")
-        $script:LastSize = $size
-        $script:LastFrame = ''
-    }
     Set-Title (Get-WindowTitle $State $NowMs)
-    $lines = Get-FrameLines (Get-ViewModel $State $NowMs $Fancy) $width $height
-    $frame = "$script:Esc[H" + (($lines | ForEach-Object { "$_$script:Esc[K" }) -join "`r`n") + "$script:Esc[J"
-    if ($frame -eq $script:LastFrame) { return }
-    [Console]::Out.Write($frame)
-    $script:LastFrame = $frame
+    Write-Lines (Get-FrameLines (Get-ViewModel $State $NowMs $Fancy) $width $height) $width $height
 }
 
-function Set-Title([string]$Title) {
-    if ($Title -eq $script:LastTitle) { return }
-    $Host.UI.RawUI.WindowTitle = $Title
-    $script:LastTitle = $Title
-}
-
-# Drains every pending key; gives the new state and whether to quit.
+# Drains every pending key; gives the new state and whether to quit or uninstall.
+# The confirm state of this pass picks the key map, because one drain can hold Ctrl+U and then y.
 function Read-Keys($State, [long]$NowMs) {
     while ([Console]::KeyAvailable) {
-        $action = Get-KeyAction ([Console]::ReadKey($true))
+        $action = Get-KeyAction ([Console]::ReadKey($true)) $State.Confirm
         if ($action -eq 'none') { continue }
         $State = Step-State $State $action $NowMs
-        if ($action -eq 'quit') { return @{ State = $State; Quit = $true } }
+        if ($action -eq 'quit') { return @{ State = $State; Quit = $true; Uninstall = $false } }
+        if ($action -eq 'uninstall') { return @{ State = $State; Quit = $true; Uninstall = $true } }
     }
-    @{ State = $State; Quit = $false }
+    @{ State = $State; Quit = $false; Uninstall = $false }
 }
 
+# Sets $script:UninstallRequested when the user chose to uninstall. A flag, not a return
+# value: stray output from the loop must never start an uninstall.
 function Start-Loop([bool]$Fancy) {
     $clock = [Diagnostics.Stopwatch]::StartNew()
-    $state = Step-State (New-AwakeState) 'toggle-pause' 0
+    $initial = New-AwakeState
+    $initial.CanUninstall = Test-InstalledCopy $PSScriptRoot
+    $state = Step-State $initial 'toggle-pause' 0
     while ($true) {
         $now = $clock.ElapsedMilliseconds
         $read = Read-Keys $state $now
         $state = $read.State
-        if ($read.Quit) { return }
+        if ($read.Quit) {
+            $script:UninstallRequested = [bool]$read.Uninstall
+            return
+        }
         $state = Step-KeyPress $state $now
         Write-Screen $state $now $Fancy
         Start-Sleep -Milliseconds $script:LoopDelayMs
     }
 }
 
-function Enter-Screen {
-    [Console]::OutputEncoding = New-Object Text.UTF8Encoding $false
-    [Console]::TreatControlCAsInput = $true
-    Enable-VirtualTerminal
-    [Console]::Out.Write("$script:Esc[?1049h$script:Esc[?25l")
-}
-
-function Exit-Screen($Saved) {
-    [Console]::Out.Write("$script:Esc[?25h$script:Esc[?1049l")
-    [Console]::TreatControlCAsInput = $Saved.CtrlC
-    [Console]::OutputEncoding = $Saved.Encoding
-    $Host.UI.RawUI.WindowTitle = $Saved.Title
+# Opens uninstall.ps1 in a new window. The app is gone by then: power and mutex are released.
+function Start-Uninstall {
+    $script = Join-Path $PSScriptRoot 'uninstall.ps1'
+    $powershell = Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'
+    $terminal = Join-Path $env:LOCALAPPDATA 'Microsoft\WindowsApps\wt.exe'
+    Write-Log 'uninstall started'
+    if (Test-Path $terminal) {
+        Start-Process -FilePath $terminal -WorkingDirectory $env:TEMP `
+            -ArgumentList (Get-UninstallArguments $powershell $script $env:TEMP)
+        return
+    }
+    Start-Process -FilePath $powershell -WorkingDirectory $env:TEMP `
+        -ArgumentList @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', "`"$script`"")
 }
 
 # A fatal error stays on screen until a key press; otherwise the window closes and hides it.
@@ -176,4 +170,11 @@ finally {
 if ($failure) {
     Show-Fatal $failure
     exit 1
+}
+if ($script:UninstallRequested) {
+    try { Start-Uninstall }
+    catch {
+        Show-Fatal $_
+        exit 1
+    }
 }

@@ -7,7 +7,7 @@ Set-StrictMode -Version Latest
 
 $script:HumorIntervalMs = 180000
 $script:SecondsOnlyMs = 60000
-$script:SpinnerStepMs = 250
+$script:SpinnerStepMs = 200
 # Under one minute, so chat apps that mark you away after 1 min of idle time never do.
 $script:KeyPressIntervalMs = 59000
 $script:KeyPressErrorPrefix = 'F15 keypress failed: '
@@ -44,6 +44,8 @@ function New-AwakeState {
         AccumulatedMs = [long]0
         ResumedAtMs   = [long]0
         KeyPress      = $false
+        Confirm       = $false
+        CanUninstall  = $false
         LastKeyMs     = $null
         Error         = $null
     }
@@ -100,9 +102,22 @@ function Get-PowerFlags($State) {
     [uint32]$flags
 }
 
-function Get-KeyAction([ConsoleKeyInfo]$Key) {
+# While the uninstall question shows, only y, n and Esc count; Ctrl+C always quits.
+function Get-ConfirmKeyAction([ConsoleKeyInfo]$Key) {
+    if (($Key.Modifiers -band [ConsoleModifiers]::Control) -ne 0) { return 'none' }
+    switch ($Key.Key) {
+        ([ConsoleKey]::Y)      { return 'uninstall' }
+        ([ConsoleKey]::N)      { return 'uninstall-cancel' }
+        ([ConsoleKey]::Escape) { return 'uninstall-cancel' }
+    }
+    'none'
+}
+
+function Get-KeyAction([ConsoleKeyInfo]$Key, [bool]$Confirm = $false) {
     $ctrl = ($Key.Modifiers -band [ConsoleModifiers]::Control) -ne 0
     if ($ctrl -and $Key.Key -eq [ConsoleKey]::C) { return 'quit' }
+    if ($Confirm) { return Get-ConfirmKeyAction $Key }
+    if ($ctrl -and $Key.Key -eq [ConsoleKey]::U) { return 'uninstall-ask' }
     if ($ctrl) { return 'none' }
     switch ($Key.Key) {
         ([ConsoleKey]::Spacebar) { return 'toggle-pause' }
@@ -135,6 +150,17 @@ function Get-NextState($State, [string]$Action, [long]$NowMs) {
             return $next
         }
         'quit' { return Stop-AwakeClock $State $NowMs }
+        'uninstall-ask' {
+            $next = Copy-AwakeState $State
+            $next.Confirm = [bool]$State.CanUninstall
+            return $next
+        }
+        'uninstall-cancel' {
+            $next = Copy-AwakeState $State
+            $next.Confirm = $false
+            return $next
+        }
+        'uninstall' { return Stop-AwakeClock $State $NowMs }
     }
     Copy-AwakeState $State
 }
@@ -257,6 +283,8 @@ function Get-ViewModel($State, [long]$NowMs, [bool]$Fancy) {
         Running = [bool]$State.Running
         Display = [bool]$State.Display
         KeyPress = [bool]$State.KeyPress
+        Confirm = [bool]$State.Confirm
+        CanUninstall = [bool]$State.CanUninstall
         Elapsed = Format-Elapsed $activeMs
         Humor   = Get-HumorLine $activeMs
         Spinner = Get-SpinnerFrame $activeMs $Fancy

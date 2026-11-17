@@ -11,6 +11,7 @@ It runs in a new Windows Terminal window opened by a desktop shortcut.
 - Coverage: `scripts/test.sh --coverage` (Pester `-CodeCoverage` on `src/*.psm1`).
 - One test file: run `scripts/test.sh` after editing; Pester 3.4 has no single-test filter here.
 - Lint: none. Mutation tool: none; break code by hand (global rule 6).
+- The Windows app copy is the one the user runs: after each change run `scripts/install.sh`, then the user closes the window and opens it again.
 - Install on Windows: `scripts/install.sh` (copies `src/` to `%USERPROFILE%\Apps\ImAwake`, makes the desktop shortcut, adds `...\ImAwake\bin` to the user PATH; the old PATH goes to `%LOCALAPPDATA%\ImAwake\path-backup.txt`).
 - Terminal command: `imawake` (run in this terminal), `imawake window` (new window), `imawake status`. Both start forms say so and stop when the app already runs. Exit codes: 0 ok/running, 1 not running, 2 wrong arguments, 3 failure.
 
@@ -35,3 +36,8 @@ It runs in a new Windows Terminal window opened by a desktop shortcut.
 - Windows PowerShell 5.1 `Import-Module src\X.psm1` (relative, no `.\`) searches only `PSModulePath`. `install.ps1` resolves `-SourceDir` to a full path first.
 - A Pester test that runs a child `powershell.exe` with `2>&1` sets `$ErrorActionPreference = 'Continue'`; under `Stop` the first stderr line throws.
 - SendInput fails or is ignored on a locked session; a failed press waits the full 59 s before it retries, so the log gets one line per minute.
+- `installed.txt` in the app folder marks a copy made by the installer. The app (Ctrl+U) and `uninstall.ps1` act only with it. The installer writes it last.
+- `uninstall.ps1` runs from the app folder and deletes it. PowerShell has read every file by then, so deleting works. The process folder must be `%TEMP%`, or the folder delete fails.
+- `[Console]::TreatControlCAsInput` and `ReadKey` throw with no console. `uninstall.ps1 -Silent -SkipUserState` is the test mode: no screen, no PATH, no shortcut, no mutex.
+- A new file in `src/` must be in `Get-AppFiles` (`ImAwake.Uninstall.psm1`); a test compares the list with the folder.
+- A row built with `, (Function)` disappears when the function gives no output. Use `, @(Function)` for a row that may be empty.

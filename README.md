@@ -68,6 +68,7 @@ Inside the window:
 | `space` | Pause / resume |
 | `d` | Keep the screen on (on / off) |
 | `f` | Press F15 every 59 s to stay "Available" in chat apps (on / off) |
+| `Ctrl+U` | Uninstall ImAwake (asks first: `y` yes, `n` no) |
 | `q`, `Esc` or `Ctrl+C` | Quit — the PC can sleep again |
 
 ## How it works
@@ -81,12 +82,16 @@ The code is split so the logic can be tested without Windows:
 | `ImAwake.Core.psm1` | State, timer, texts — pure logic, no console and no clock reads |
 | `ImAwake.Frame.psm1` | Draws the box as text lines — pure, no console |
 | `ImAwake.Power.psm1` | The only place that calls Windows (power request, F15 key) |
-| `ImAwake.Launch.psm1` | Helpers for the `imawake` command |
+| `ImAwake.Launch.psm1` | Helpers for the `imawake` command and the uninstall window |
+| `ImAwake.Screen.psm1` | The console screen: alternate screen, frame write, title |
+| `ImAwake.UserPath.psm1`, `ImAwake.Setup.psm1` | The user PATH: pure text rules, and the registry edit with backup |
+| `ImAwake.Uninstall.psm1` | The file list and the uninstall steps — pure |
+| `uninstall.ps1` | Removes ImAwake; started with `Ctrl+U` |
 | `ImAwake.ps1` | The main loop: reads keys, draws the screen, applies the power state |
 
 ## Tests
 
-122 [Pester](https://pester.dev) tests cover the logic, the drawing, the launcher, a real call to the Windows power API and a real F15 keypress.
+Over 180 [Pester](https://pester.dev) tests cover the logic, the drawing, the launcher, a real call to the Windows power API and a real F15 keypress.
 
 ```powershell
 Import-Module Pester -RequiredVersion 3.4.0   # the version built into Windows
@@ -97,8 +102,14 @@ From WSL: `scripts/test.sh` (add `--coverage` for a coverage report).
 
 ## Uninstall
 
-1. Delete `%USERPROFILE%\Apps\ImAwake` and the desktop shortcut.
-2. Remove `...\Apps\ImAwake\bin` from your user PATH (Settings → System → About → Advanced system settings → Environment Variables).
+Open ImAwake and press `Ctrl+U`, then `y` to confirm (`n` or `Esc` cancels). A new window shows a progress bar while ImAwake:
+
+- removes `...\Apps\ImAwake\bin` from your user PATH (the old value goes to `%LOCALAPPDATA%\ImAwake\path-backup.txt`)
+- deletes the desktop shortcut and the app files, then itself and the app folder
+
+The log and the PATH backup in `%LOCALAPPDATA%\ImAwake` stay. A file you added to the app folder stays too, with its folder. If a step fails, `uninstall.ps1` stays in the app folder; run it again from another folder (not from inside the app folder). Only a copy made by the installer can uninstall; a repository checkout never does.
+
+To install again, for example on another PC, run the install command from the Install section: it replaces the old copy.
 
 ## License
 

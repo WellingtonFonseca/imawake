@@ -16,11 +16,10 @@ $SourceDir = Convert-Path -LiteralPath $SourceDir
 
 Import-Module (Join-Path $SourceDir 'ImAwake.Launch.psm1') -Force
 Import-Module (Join-Path $SourceDir 'ImAwake.UserPath.psm1') -Force
+Import-Module (Join-Path $SourceDir 'ImAwake.Setup.psm1') -Force
+Import-Module (Join-Path $SourceDir 'ImAwake.Uninstall.psm1') -Force
 
-$files = @(
-    'ImAwake.ps1', 'ImAwake.Core.psm1', 'ImAwake.Frame.psm1', 'ImAwake.Power.psm1',
-    'ImAwake.Cli.ps1', 'ImAwake.Launch.psm1', 'bin\imawake.cmd'
-)
+$files = Get-AppFiles
 $binDir = Join-Path $TargetDir 'bin'
 $powershell = Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'
 $backupPath = Join-Path $env:LOCALAPPDATA 'ImAwake\path-backup.txt'
@@ -61,48 +60,26 @@ function New-Shortcut {
     $link.FullName
 }
 
-# Reads and writes the raw registry value: .NET's SetEnvironmentVariable would expand
-# %VAR% entries and change the value type.
 function Add-BinToUserPath {
-    $key = [Microsoft.Win32.Registry]::CurrentUser.OpenSubKey('Environment', $true)
-    try {
-        $raw = $key.GetValue('Path', $null, [Microsoft.Win32.RegistryValueOptions]::DoNotExpandEnvironmentNames)
-        $new = Add-PathEntry $raw $binDir
-        if ($null -eq $new) { return "The user PATH already has $binDir" }
-        $kind = [Microsoft.Win32.RegistryValueKind]::ExpandString
-        if ($null -ne $raw) { $kind = $key.GetValueKind('Path') }
-        Save-PathBackup $raw
-        $key.SetValue('Path', $new, $kind)
-    }
-    finally {
-        $key.Close()
-    }
-    Send-EnvironmentChange
+    $changed = Edit-UserPath { param($raw) Add-PathEntry $raw $binDir } $backupPath
+    if (-not $changed) { return "The user PATH already has $binDir" }
     "Added $binDir to the user PATH"
 }
 
-# Appends, so a second install keeps the first original value.
-function Save-PathBackup($Raw) {
-    New-Item -ItemType Directory -Force -Path (Split-Path $backupPath) | Out-Null
-    Add-Content -Path $backupPath -Encoding UTF8 -Value ('{0:yyyy-MM-dd HH:mm:ss} {1}' -f (Get-Date), $Raw)
+# Written last, and an old marker is removed before the copy, so a copy that stopped in
+# the middle has no marker. The app and uninstall.ps1 uninstall only a folder that has it.
+function Clear-Marker {
+    Remove-Item -LiteralPath (Join-Path $TargetDir (Get-MarkerName)) -Force -ErrorAction SilentlyContinue
 }
 
-# Tells Explorer to reload the environment, so new terminal windows see the new PATH.
-function Send-EnvironmentChange {
-    if (-not ('ImAwakeInstall.Native' -as [type])) {
-        Add-Type -Namespace ImAwakeInstall -Name Native -MemberDefinition @'
-[DllImport("user32.dll", SetLastError = true, CharSet = CharSet.Unicode)]
-public static extern IntPtr SendMessageTimeout(IntPtr hWnd, uint Msg, UIntPtr wParam, string lParam, uint fuFlags, uint uTimeout, out UIntPtr lpdwResult);
-'@
-    }
-    $result = [UIntPtr]::Zero
-    $ok = [ImAwakeInstall.Native]::SendMessageTimeout([IntPtr]0xFFFF, 0x1A, [UIntPtr]::Zero, 'Environment', 2, 5000, [ref]$result)
-    if ($ok -eq [IntPtr]::Zero) {
-        Write-Warning 'Windows did not confirm the PATH change. Sign out and in again if imawake is not found.'
-    }
+function Write-Marker {
+    Set-Content -Path (Join-Path $TargetDir (Get-MarkerName)) -Encoding ASCII `
+        -Value ('Installed {0:yyyy-MM-dd HH:mm:ss} from {1}' -f (Get-Date), $SourceDir)
 }
 
+Clear-Marker
 Copy-App
+Write-Marker
 $shortcut = New-Shortcut
 $pathResult = Add-BinToUserPath
 "Installed to $TargetDir"
