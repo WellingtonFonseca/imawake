@@ -94,25 +94,26 @@ Describe 'Get-KeyAction' {
 }
 
 Describe 'Get-NextState' {
-    It 'pauses a running state' {
+    It 'pauses a running state and resets the timer' {
         $next = Get-NextState (New-RunningState 0) 'toggle-pause' 60000
         $next.Running | Should Be $false
-        Get-ActiveMs $next 999999 | Should Be 60000
+        Get-ActiveMs $next 999999 | Should Be 0
     }
-    It 'resumes a paused state' {
-        $paused = Stop-AwakeClock (New-RunningState 0) 60000
+    It 'resumes a paused state with the timer from zero' {
+        $paused = Get-NextState (New-RunningState 0) 'toggle-pause' 60000
         $next = Get-NextState $paused 'toggle-pause' 120000
         $next.Running | Should Be $true
-        Get-ActiveMs $next 180000 | Should Be 120000
+        Get-ActiveMs $next 180000 | Should Be 60000
     }
     It 'flips the screen option and keeps the clock' {
         $next = Get-NextState (New-RunningState 0) 'toggle-display' 5000
         $next.Display | Should Be $false
         $next.Running | Should Be $true
     }
-    It 'stops the clock on quit' {
+    It 'stops the clock on quit and keeps the time' {
         $next = Get-NextState (New-RunningState 0) 'quit' 5000
         $next.Running | Should Be $false
+        Get-ActiveMs $next 999999 | Should Be 5000
     }
     It 'turns F15 on and makes a press due, keeping the clock and the screen option' {
         $s = New-RunningState 1000
@@ -176,9 +177,12 @@ Describe 'Invoke-Transition' {
 
 Describe 'Format-Elapsed' {
     $cases = @(
-        @{ Ms = -60000; Text = '0min' },
-        @{ Ms = 0; Text = '0min' },
-        @{ Ms = 59000; Text = '0min' },
+        @{ Ms = -60000; Text = '0s' },
+        @{ Ms = 0; Text = '0s' },
+        @{ Ms = 999; Text = '0s' },
+        @{ Ms = 1000; Text = '1s' },
+        @{ Ms = 59999; Text = '59s' },
+        @{ Ms = 60000; Text = '1min' },
         @{ Ms = 300000; Text = '5min' },
         @{ Ms = 3599000; Text = '59min' },
         @{ Ms = 3600000; Text = '1h 00min' },
@@ -192,6 +196,15 @@ Describe 'Format-Elapsed' {
 }
 
 Describe 'Get-WindowTitle' {
+    It 'shows seconds in the first minute' {
+        Get-WindowTitle (New-RunningState 0) 42000 | Should BeExactly "$coffee I'm awake! $dash 42s"
+    }
+    It 'still shows seconds at 59999 ms' {
+        Get-WindowTitle (New-RunningState 0) 59999 | Should BeExactly "$coffee I'm awake! $dash 59s"
+    }
+    It 'switches to minutes at 60000 ms' {
+        Get-WindowTitle (New-RunningState 0) 60000 | Should BeExactly "$coffee I'm awake! $dash 1min"
+    }
     It 'shows minutes under one hour' {
         Get-WindowTitle (New-RunningState 0) 420000 | Should BeExactly "$coffee I'm awake! $dash 7min"
     }

@@ -18,10 +18,10 @@ ImAwake takes a simpler approach: **the window is the switch.** While you can se
 
 - **Window = switch.** Sleep is blocked only while ImAwake is open.
 - **Safe by design.** It uses the official Windows API (`SetThreadExecutionState`). If the app crashes or is killed, Windows drops the request on its own. Your power settings are never touched.
-- **Pause at any time.** Press `space` to let the PC sleep again without closing the window.
+- **Pause at any time.** Press `space` to let the PC sleep again without closing the window. The timer goes back to zero.
 - **Screen on, if you want.** Press `d` to also keep the display from turning off.
 - **Stay "Available" in chat apps.** Press `f` to have ImAwake press the unused F15 key every 59 seconds. Teams, Slack and similar apps then do not mark you as away. It is off when the app starts and stops while paused. Note: this counts as real activity for Windows, so the screen also stays on and the PC does not lock on its own, even with `d` off.
-- **Live status.** A timer shows how long the PC has been awake, also in the window title, so you can see it in the taskbar.
+- **Live status.** A timer shows how long the PC has been awake, also in the window title, so you can see it in the taskbar. It counts in seconds during the first minute.
 - **One at a time.** A second copy notices the first one and closes, so two windows never fight.
 - **Terminal command.** `imawake`, `imawake window` and `imawake status` from any terminal.
 - **No admin, no .exe.** Plain PowerShell scripts that ship with Windows. Nothing to compile, nothing unsigned to run.
