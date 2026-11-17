@@ -34,24 +34,28 @@ function Test-InstalledCopy([string]$AppDir) {
     Test-Path -LiteralPath (Join-Path $AppDir (Get-MarkerName))
 }
 
-# The steps in the order uninstall.ps1 runs them. The marker and the uninstaller go last,
-# so a failure before them leaves a copy that can run the uninstall again.
+function New-UninstallItem([string]$Id, [string]$Label, [string]$Kind, [string]$Name, [bool]$KeepOnFailure = $false) {
+    [pscustomobject]@{ Id = $Id; Label = $Label; Kind = $Kind; Name = $Name; KeepOnFailure = $KeepOnFailure }
+}
+
+# The steps in the order uninstall.ps1 runs them. The modules, the marker and the uninstaller
+# go last and stay after a failed step (KeepOnFailure), so a second run can finish.
 function Get-UninstallItems {
     $items = @(
-        [pscustomobject]@{ Id = 'path'; Label = 'Remove bin from the user PATH'; Name = '' }
-        [pscustomobject]@{ Id = 'shortcut'; Label = 'Remove the desktop shortcut'; Name = '' }
+        New-UninstallItem 'path' 'Remove bin from the user PATH' 'path' ''
+        New-UninstallItem 'shortcut' 'Remove the desktop shortcut' 'shortcut' ''
     )
     $modules = Get-ModuleFiles
     foreach ($file in (Get-AppFiles | Where-Object { $_ -ne 'uninstall.ps1' -and $_ -notin $modules })) {
-        $items += [pscustomobject]@{ Id = 'file'; Label = "Remove $file"; Name = $file }
+        $items += New-UninstallItem 'file' "Remove $file" 'file' $file
     }
     foreach ($file in $modules) {
-        $items += [pscustomobject]@{ Id = 'module'; Label = "Remove $file"; Name = $file }
+        $items += New-UninstallItem 'module' "Remove $file" 'file' $file $true
     }
-    $items += [pscustomobject]@{ Id = 'marker'; Label = 'Remove the install marker'; Name = (Get-MarkerName) }
-    $items += [pscustomobject]@{ Id = 'self'; Label = 'Remove uninstall.ps1'; Name = 'uninstall.ps1' }
-    $items += [pscustomobject]@{ Id = 'bin-folder'; Label = 'Remove the bin folder'; Name = 'bin' }
-    $items += [pscustomobject]@{ Id = 'app-folder'; Label = 'Remove the app folder'; Name = '' }
+    $items += New-UninstallItem 'marker' 'Remove the install marker' 'file' (Get-MarkerName) $true
+    $items += New-UninstallItem 'self' 'Remove uninstall.ps1' 'file' 'uninstall.ps1' $true
+    $items += New-UninstallItem 'bin-folder' 'Remove the bin folder' 'folder' 'bin'
+    $items += New-UninstallItem 'app-folder' 'Remove the app folder' 'folder' ''
     $items
 }
 
@@ -63,4 +67,51 @@ function Test-KeepUninstaller($Results) {
     $false
 }
 
-Export-ModuleMember -Function Get-ShortcutPath, Get-AppFiles, Get-ModuleFiles, Get-MarkerName, Test-InstalledCopy, Get-UninstallItems, Test-KeepUninstaller
+# Runs one step through the effects and gives its status: ok, skipped or a thrown error.
+function Invoke-UninstallStep($Item, $Results, [string]$AppDir, [hashtable]$Effects) {
+    if ($Item.KeepOnFailure -and (Test-KeepUninstaller $Results)) { return 'skipped' }
+    $path = if ($Item.Name) { Join-Path $AppDir $Item.Name } else { $AppDir }
+    switch ($Item.Kind) {
+        'path'     { return [string](& $Effects.RemovePath) }
+        'shortcut' { return [string](& $Effects.RemoveShortcut) }
+        'file'     { return [string](& $Effects.RemoveFile $path) }
+        'folder'   { return [string](& $Effects.RemoveFolder $path) }
+    }
+}
+
+# A failed step does not stop the next ones: it is logged and the run goes on.
+function Get-UninstallResult($Item, $Results, [string]$AppDir, [hashtable]$Effects) {
+    try {
+        [pscustomobject]@{ Label = $Item.Label; Status = (Invoke-UninstallStep $Item $Results $AppDir $Effects); Reason = '' }
+    }
+    catch {
+        & $Effects.Log "$($Item.Label) failed: $_"
+        [pscustomobject]@{ Label = $Item.Label; Status = 'failed'; Reason = "$_" }
+    }
+}
+
+function Get-UninstallView($Items, $Results, [bool]$Finished, [bool]$Fancy) {
+    $done = @($Results).Count
+    $current = if ($done -lt $Items.Count) { $Items[$done].Label } else { '' }
+    [pscustomobject]@{
+        Fancy = $Fancy; Done = $done; Total = $Items.Count; Current = $current; Finished = $Finished
+        Failed = @($Results | Where-Object { $_.Status -eq 'failed' } | ForEach-Object { $_.Label })
+    }
+}
+
+# Runs every step with the effects of the host (real registry and console, or fakes in a test),
+# then shows the final view, reports the results and waits for a key. Gives the final view.
+function Invoke-Uninstall([object[]]$Items, [string]$AppDir, [hashtable]$Effects, [bool]$Fancy) {
+    $results = @()
+    foreach ($item in $Items) {
+        & $Effects.Show (Get-UninstallView $Items $results $false $Fancy)
+        $results += Get-UninstallResult $item $results $AppDir $Effects
+    }
+    $view = Get-UninstallView $Items $results $true $Fancy
+    & $Effects.Show $view
+    & $Effects.Report $results
+    & $Effects.WaitKey
+    $view
+}
+
+Export-ModuleMember -Function Get-ShortcutPath, Get-AppFiles, Get-ModuleFiles, Get-MarkerName, Test-InstalledCopy, Get-UninstallItems, Test-KeepUninstaller, Invoke-Uninstall, Get-UninstallResult, Get-UninstallView

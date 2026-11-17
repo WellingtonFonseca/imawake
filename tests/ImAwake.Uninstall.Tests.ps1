@@ -56,6 +56,16 @@ Describe 'Get-UninstallItems' {
     }
 }
 
+Describe 'Get-UninstallItems data' {
+    It 'keeps on failure exactly the modules, the marker and the uninstaller' {
+        $keep = @(Get-UninstallItems | Where-Object { $_.KeepOnFailure } | ForEach-Object { $_.Id } | Sort-Object -Unique)
+        $keep -join ',' | Should BeExactly 'marker,module,self'
+    }
+    It 'gives every item a kind' {
+        foreach ($item in (Get-UninstallItems)) { ($item.Kind -in 'path', 'shortcut', 'file', 'folder') | Should Be $true }
+    }
+}
+
 Describe 'Test-KeepUninstaller' {
     It 'is true after a failed step' {
         Test-KeepUninstaller @([pscustomobject]@{ Status = 'ok' }, [pscustomobject]@{ Status = 'failed' }) | Should Be $true
@@ -201,6 +211,72 @@ Describe 'Edit-UserPath' {
         finally {
             [Microsoft.Win32.Registry]::CurrentUser.DeleteSubKey($name, $false)
             Remove-Item -Recurse -Force $dir -ErrorAction SilentlyContinue
+        }
+    }
+}
+
+# Effects that record each call; a key can be replaced to force a failure.
+function New-FakeEffects($Calls, [hashtable]$Override = @{}) {
+    $effects = @{
+        RemovePath     = { $Calls.Add('path') | Out-Null; 'ok' }.GetNewClosure()
+        RemoveShortcut = { $Calls.Add('shortcut') | Out-Null; 'ok' }.GetNewClosure()
+        RemoveFile     = { param($Path) $Calls.Add("file:$Path") | Out-Null; 'ok' }.GetNewClosure()
+        RemoveFolder   = { param($Path) $Calls.Add("folder:$Path") | Out-Null; 'ok' }.GetNewClosure()
+        Show           = { param($View) $Calls.Add("show:$($View.Done)") | Out-Null }.GetNewClosure()
+        Report         = { param($Results) $Calls.Add('report') | Out-Null }.GetNewClosure()
+        WaitKey        = { $Calls.Add('wait') | Out-Null }.GetNewClosure()
+        Log            = { param($Message) $Calls.Add("log:$Message") | Out-Null }.GetNewClosure()
+    }
+    foreach ($key in $Override.Keys) { $effects[$key] = $Override[$key] }
+    $effects
+}
+
+Describe 'Invoke-Uninstall with fake effects' {
+    $appDir = 'C:\Fake\App'
+    It 'runs every step in order and shows the final view last' {
+        $calls = New-Object Collections.ArrayList
+        $items = @(Get-UninstallItems)
+        $view = Invoke-Uninstall $items $appDir (New-FakeEffects $calls) $false
+        $view.Done | Should Be $items.Count
+        $view.Total | Should Be $items.Count
+        $view.Finished | Should Be $true
+        @($view.Failed).Count | Should Be 0
+        $steps = @($calls | Where-Object { $_ -notlike 'show:*' -and $_ -ne 'report' -and $_ -ne 'wait' })
+        $steps.Count | Should Be $items.Count
+        $steps[0] | Should Be 'path'
+        $steps[1] | Should Be 'shortcut'
+        @($calls | Where-Object { $_ -like 'show:*' }).Count | Should Be ($items.Count + 1)
+        ($calls[-3..-1]) -join ',' | Should BeExactly "show:$($items.Count),report,wait"
+    }
+    It 'passes full paths to the file and folder effects' {
+        $calls = New-Object Collections.ArrayList
+        Invoke-Uninstall @(Get-UninstallItems) $appDir (New-FakeEffects $calls) $false | Out-Null
+        ($calls -contains 'file:C:\Fake\App\ImAwake.Core.psm1') | Should Be $true
+        ($calls -contains 'file:C:\Fake\App\uninstall.ps1') | Should Be $true
+        ($calls -contains 'folder:C:\Fake\App\bin') | Should Be $true
+        ($calls -contains 'folder:C:\Fake\App') | Should Be $true
+    }
+    It 'fails one step, logs it, keeps the uninstaller and its modules, and still tries the folders' {
+        $calls = New-Object Collections.ArrayList
+        $fail = { param($Path) if ($Path -like '*ImAwake.Cli.ps1') { throw 'locked' }; 'ok' }
+        $view = Invoke-Uninstall @(Get-UninstallItems) $appDir (New-FakeEffects $calls @{ RemoveFile = $fail }) $false
+        @($view.Failed).Count | Should Be 1
+        $view.Failed[0] | Should Be 'Remove ImAwake.Cli.ps1'
+        (@($calls | Where-Object { $_ -like 'log:*locked*' }).Count) | Should Be 1
+        ($calls -contains 'file:C:\Fake\App\uninstall.ps1') | Should Be $false
+        ($calls -contains 'file:C:\Fake\App\ImAwake.Core.psm1') | Should Be $false
+        ($calls -contains 'file:C:\Fake\App\installed.txt') | Should Be $false
+        ($calls -contains 'folder:C:\Fake\App\bin') | Should Be $true
+        ($calls -contains 'folder:C:\Fake\App') | Should Be $true
+    }
+    It 'gives each result a single string status' {
+        $calls = New-Object Collections.ArrayList
+        $items = @(Get-UninstallItems)
+        $results = @()
+        foreach ($item in $items) {
+            $result = Get-UninstallResult $item $results $appDir (New-FakeEffects $calls)
+            ($result.Status -is [string]) | Should Be $true
+            $results += $result
         }
     }
 }

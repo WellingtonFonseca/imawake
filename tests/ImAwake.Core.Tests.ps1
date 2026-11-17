@@ -195,6 +195,22 @@ Describe 'Format-Elapsed' {
     }
 }
 
+Describe 'Format-Elapsed in the title style' {
+    $cases = @(
+        @{ Ms = -1; Text = '0s' },
+        @{ Ms = 59999; Text = '59s' },
+        @{ Ms = 60000; Text = '1min' },
+        @{ Ms = 3599000; Text = '59min' },
+        @{ Ms = 3600000; Text = '1h00' },
+        @{ Ms = 7380000; Text = '2h03' }
+    )
+    It 'formats <Ms> ms as <Text>' -TestCases $cases {
+        param($Ms, $Text)
+        Format-Elapsed $Ms 'title' | Should BeExactly $Text
+    }
+    It 'rejects an unknown style' { { Format-Elapsed 1000 'wide' } | Should Throw }
+}
+
 Describe 'Get-WindowTitle' {
     It 'shows seconds in the first minute' {
         Get-WindowTitle (New-RunningState 0) 42000 | Should BeExactly "$coffee I'm awake! $dash 42s"
@@ -361,42 +377,45 @@ Describe 'Get-KeyAction for uninstall' {
     It 'maps Ctrl+U to uninstall-ask' { Get-KeyAction (New-Key U -Ctrl) | Should Be 'uninstall-ask' }
     It 'ignores a plain u' { Get-KeyAction (New-Key U 'u') | Should Be 'none' }
     It 'ignores Ctrl+X' { Get-KeyAction (New-Key X -Ctrl) | Should Be 'none' }
-    It 'maps y to uninstall while confirming' { Get-KeyAction (New-Key Y 'y') $true | Should Be 'uninstall' }
-    It 'maps n to uninstall-cancel while confirming' { Get-KeyAction (New-Key N 'n') $true | Should Be 'uninstall-cancel' }
-    It 'maps Esc to uninstall-cancel while confirming' { Get-KeyAction (New-Key Escape) $true | Should Be 'uninstall-cancel' }
+    It 'maps y to uninstall while confirming' { Get-KeyAction (New-Key Y 'y') 'confirm-uninstall' | Should Be 'uninstall' }
+    It 'maps n to uninstall-cancel while confirming' { Get-KeyAction (New-Key N 'n') 'confirm-uninstall' | Should Be 'uninstall-cancel' }
+    It 'maps Esc to uninstall-cancel while confirming' { Get-KeyAction (New-Key Escape) 'confirm-uninstall' | Should Be 'uninstall-cancel' }
     It 'ignores other keys while confirming' {
-        Get-KeyAction (New-Key X 'x') $true | Should Be 'none'
-        Get-KeyAction (New-Key Enter) $true | Should Be 'none'
-        Get-KeyAction (New-Key Spacebar ' ') $true | Should Be 'none'
-        Get-KeyAction (New-Key Q 'q') $true | Should Be 'none'
+        Get-KeyAction (New-Key X 'x') 'confirm-uninstall' | Should Be 'none'
+        Get-KeyAction (New-Key Enter) 'confirm-uninstall' | Should Be 'none'
+        Get-KeyAction (New-Key Spacebar ' ') 'confirm-uninstall' | Should Be 'none'
+        Get-KeyAction (New-Key Q 'q') 'confirm-uninstall' | Should Be 'none'
     }
     It 'ignores Ctrl+Y and Ctrl+U while confirming' {
-        Get-KeyAction (New-Key Y -Ctrl) $true | Should Be 'none'
-        Get-KeyAction (New-Key U -Ctrl) $true | Should Be 'none'
+        Get-KeyAction (New-Key Y -Ctrl) 'confirm-uninstall' | Should Be 'none'
+        Get-KeyAction (New-Key U -Ctrl) 'confirm-uninstall' | Should Be 'none'
     }
-    It 'keeps Ctrl+C as quit while confirming' { Get-KeyAction (New-Key C -Ctrl) $true | Should Be 'quit' }
-    It 'keeps Esc as quit when not confirming' { Get-KeyAction (New-Key Escape) $false | Should Be 'quit' }
+    It 'keeps Ctrl+C as quit while confirming' { Get-KeyAction (New-Key C -Ctrl) 'confirm-uninstall' | Should Be 'quit' }
+    It 'rejects a bool as the mode, so an old caller fails loudly' {
+        { Get-KeyAction (New-Key Y 'y') $true } | Should Throw
+    }
+    It 'keeps Esc as quit when not confirming' { Get-KeyAction (New-Key Escape) 'run' | Should Be 'quit' }
 }
 
 Describe 'Get-NextState for uninstall' {
     function New-InstalledState { $s = New-RunningState 0; $s.CanUninstall = $true; $s }
     It 'starts with no confirm and no uninstall' {
         $s = New-AwakeState
-        $s.Confirm | Should Be $false
+        $s.Mode | Should Be 'run'
         $s.CanUninstall | Should Be $false
     }
     It 'asks for the confirm on an installed copy and keeps the clock' {
         $next = Get-NextState (New-InstalledState) 'uninstall-ask' 5000
-        $next.Confirm | Should Be $true
+        $next.Mode | Should Be 'confirm-uninstall'
         $next.Running | Should Be $true
     }
     It 'ignores the ask on a copy that is not installed' {
         $next = Get-NextState (New-RunningState 0) 'uninstall-ask' 5000
-        $next.Confirm | Should Be $false
+        $next.Mode | Should Be 'run'
     }
     It 'clears the confirm on cancel' {
         $asked = Get-NextState (New-InstalledState) 'uninstall-ask' 5000
-        (Get-NextState $asked 'uninstall-cancel' 6000).Confirm | Should Be $false
+        (Get-NextState $asked 'uninstall-cancel' 6000).Mode | Should Be 'run'
     }
     It 'stops the clock on uninstall and keeps the time' {
         $next = Get-NextState (New-InstalledState) 'uninstall' 5000
@@ -421,9 +440,9 @@ Describe 'Get-ViewModel for uninstall' {
     It 'passes the confirm and the installed flag' {
         $s = New-RunningState 0
         $s.CanUninstall = $true
-        $s.Confirm = $true
+        $s.Mode = 'confirm-uninstall'
         $v = Get-ViewModel $s 0 $false
-        $v.Confirm | Should Be $true
+        $v.Mode | Should Be 'confirm-uninstall'
         $v.CanUninstall | Should Be $true
     }
 }

@@ -25,6 +25,15 @@ function Exit-Screen($Saved) {
     $Host.UI.RawUI.WindowTitle = $Saved.Title
 }
 
+# The console state to restore with Exit-Screen. It throws with no console.
+function Get-ScreenState {
+    @{
+        Title    = $Host.UI.RawUI.WindowTitle
+        Encoding = [Console]::OutputEncoding
+        CtrlC    = [Console]::TreatControlCAsInput
+    }
+}
+
 # Forces the next Write-Lines to draw everything again.
 function Reset-Frame {
     $script:LastFrame = ''
@@ -50,4 +59,4 @@ function Set-Title([string]$Title) {
     $script:LastTitle = $Title
 }
 
-Export-ModuleMember -Function Enter-Screen, Exit-Screen, Reset-Frame, Write-Lines, Set-Title
+Export-ModuleMember -Function Get-ScreenState, Enter-Screen, Exit-Screen, Reset-Frame, Write-Lines, Set-Title
